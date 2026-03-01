@@ -4,58 +4,70 @@ import os
 import re
 import httpx
 from datetime import datetime, timedelta
-from playwright.async_api import async_playwright
 from supabase import create_client, Client
 
-# Supabase init
+# ==========================================
+# 核心配置与初始化
+# ==========================================
 SUPABASE_URL = "https://furwnoxzsddkytimxtma.supabase.co"
 SUPABASE_KEY = "sb_publishable_YcF-ou8VD7TvqzbhOTF0ew_MPI0Wv3H"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# 抓取配置 (Header 来自 Network 拦截结果)
+# 抓取特征 (来自 Network 拦截)
 TOP_L_HEADER = "2s3dfnfRgn43PkgmPolqre#"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 def get_auth_cookies():
+    """从本地 auth.json 提取登录 Cookie"""
     cookie_str = ""
-    if os.path.exists("d:/item/ProSourcing/auth.json"):
-        with open("d:/item/ProSourcing/auth.json", "r") as f:
+    auth_path = "d:/item/ProSourcing/auth.json"
+    if os.path.exists(auth_path):
+        with open(auth_path, "r") as f:
             state = json.load(f)
             cookies = state.get("cookies", [])
             cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
     return cookie_str
 
-async def fetch_api(client, url, referer):
+# ==========================================
+# 核心 API 请求封装
+# ==========================================
+async def api_request(client, url, referer, method="GET", json_payload=None):
     headers = {
         "User-Agent": UA,
         "Referer": referer,
         "Cookie": get_auth_cookies(),
-        "top-l": TOP_L_HEADER
+        "top-l": TOP_L_HEADER,
+        "Content-Type": "application/json",
+        "Origin": "https://app.algatop.kz" if "algatop" in url else "https://kaspi.kz"
     }
     try:
-        response = await client.get(url, headers=headers, timeout=30.0)
-        if response.status_code == 200:
-            return response.json()
+        if method == "POST":
+            resp = await client.post(url, headers=headers, json=json_payload, timeout=20.0)
         else:
-            print(f"  [API ERR] {url} -> {response.status_code}")
-            return None
+            resp = await client.get(url, headers=headers, timeout=20.0)
+            
+        if resp.status_code == 200:
+            return resp.json()
+        return None
     except Exception as e:
-        print(f"  [API EXC] {url} -> {e}")
+        print(f"  [API ERROR] {url}: {e}")
         return None
 
+# ==========================================
+# 数据采集主核心 (100% 接口驱动)
+# ==========================================
 async def enrich_and_insert(client, p_data):
     sku = p_data.get("sku")
-    if not sku: return None
+    if not sku: return
     
-    print(f"\n--- Processing SKU {sku} ---")
+    print(f"\n>>> 正在处理 SKU {sku} <<<")
     
-    # 构造 90 天日期范围
-    end_dt = datetime.now()
-    start_dt = end_dt - timedelta(days=90)
-    end_str = end_dt.strftime("%Y%m%d")
-    start_str = start_dt.strftime("%Y%m%d")
+    # 构造 3 个月日期窗口
+    today = datetime.now()
+    start_date = (today - timedelta(days=90)).strftime("%Y%m%d")
+    end_date = today.strftime("%Y%m%d")
     
-    # Payload 初始化
+    # 初始化入库 Payload
     sb_payload = {
         "sku": str(sku),
         "product_name": p_data.get("title", ""),
@@ -63,110 +75,101 @@ async def enrich_and_insert(client, p_data):
         "price": float(re.sub(r'[^\d.]', '', str(p_data.get("price", "0")).replace(' ', '')) or 0),
         "reviews_count": int(p_data.get("reviews", 0)),
         "image_url": p_data.get("image_url"),
-        "sellers": 0, "sales_3m": 0, "revenue_3m": 0,
-        "category_total_sales": 0, "category_total_products": 0, "top3_sales_sum": 0
+        "sales_3m": 0, "revenue_3m": 0, "sellers": 0, "rating": 0,
+        "category_total_sales": 0, "category_total_products": 0, "top3_sales_sum": 0,
+        "brand": None, "listing_date": None, "category_tree": None
     }
 
-    # 1. 获取单品 90 天统计数据
-    stats_url = f"https://app.algatop.kz/api/v1/niche/product/statistic?code={sku}&startDate={start_str}&endDate={end_str}"
-    res_stats = await fetch_api(client, stats_url, f"https://app.algatop.kz/niche/product/{sku}")
-    
-    if res_stats and res_stats.get("success"):
-        stats_list = res_stats.get("data", {}).get("statistic", [])
-        if stats_list:
-            s = stats_list[0]
+    # 1. Algatop 详情 API (取品牌、上架时间、类目 ID)
+    detail_url = f"https://app.algatop.kz/api/v1/niche/product/{sku}"
+    res_det = await api_request(client, detail_url, f"https://app.algatop.kz/niche/product/{sku}")
+    cat_code = None
+    if res_det and res_det.get("success"):
+        raw_node = res_det.get("data")
+        node = raw_node[0] if isinstance(raw_node, list) and raw_node else (raw_node if isinstance(raw_node, dict) else {})
+        sb_payload["brand"] = node.get("brand_name")
+        sb_payload["listing_date"] = node.get("create_date")
+        sb_payload["category_tree"] = node.get("category_name")
+        cat_code = node.get("category_code") or node.get("category_ext_id")
+        print(f"  [Detail] 品牌: {sb_payload['brand']}, 上架: {sb_payload['listing_date']}")
+
+    # 2. Algatop 统计 API (取 90 天销量/金额)
+    stat_url = f"https://app.algatop.kz/api/v1/niche/product/statistic?code={sku}&startDate={start_date}&endDate={end_date}"
+    res_stat = await api_request(client, stat_url, f"https://app.algatop.kz/niche/product/{sku}")
+    if res_stat and res_stat.get("success"):
+        stat_list = res_stat.get("data", {}).get("statistic", [])
+        if stat_list:
+            s = stat_list[0]
             sb_payload["sales_3m"] = int(s.get("sale_qty") or 0)
             sb_payload["revenue_3m"] = float(s.get("sale_amount") or 0)
-            sb_payload["sellers"] = int(s.get("merchant_count") or 0)
-            sb_payload["rating"] = float(s.get("product_rate") or 0)
-            print(f"  [API] Sales: {sb_payload['sales_3m']}, Sellers: {sb_payload['sellers']}")
+            sb_payload["sellers"] = int(s.get("merchant_count") or 0) # API 给出的平均卖家数最准
+            print(f"  [Stats] 90天销量: {sb_payload['sales_3m']}, 卖家数: {sb_payload['sellers']}")
 
-    # 2. 基础属性 Fallback：如果 API 没给到位，我们用 Playwright 详情页解析
-    detail_url = f"https://app.algatop.kz/api/v1/niche/product/detail?code={sku}"
-    res_detail = await fetch_api(client, detail_url, f"https://app.algatop.kz/niche/product/{sku}")
-    
-    cat_code = None
-    if res_detail and res_detail.get("success"):
-        data_node = res_detail.get("data")
-        d = data_node[0] if isinstance(data_node, list) and data_node else (data_node if isinstance(data_node, dict) else {})
-        sb_payload["brand"] = d.get("brand_name")
-        sb_payload["listing_date"] = d.get("p_created_at")
-        sb_payload["category_tree"] = d.get("category_name")
-        cat_code = d.get("category_code")
+    # 3. Kaspi 实时价格与卖家数 (对冲验证)
+    kaspi_offers_url = f"https://kaspi.kz/yml/offer-view/offers/{sku}"
+    res_kaspi = await api_request(client, kaspi_offers_url, f"https://kaspi.kz/shop/p/-{sku}/", method="POST", json_payload={"cityId": "750000000"})
+    if res_kaspi:
+        real_sellers = res_kaspi.get("total", 0)
+        # 如果实时卖家数更多，更新它
+        if real_sellers > sb_payload["sellers"]: sb_payload["sellers"] = real_sellers
+        if res_kaspi.get("offers") and len(res_kaspi["offers"]) > 0:
+            sb_payload["price"] = float(res_kaspi["offers"][0].get("price") or sb_payload["price"])
+        print(f"  [Kaspi] 实时低价: {sb_payload['price']}, 卖家总数: {real_sellers}")
 
-    # 如果 API 没给品牌或日期，我们从 Page 文本里抠
-    if not sb_payload["brand"] or not sb_payload["listing_date"]:
-        try:
-            await page.goto(f"https://app.algatop.kz/niche/product/{sku}", wait_until="domcontentloaded", timeout=60000)
-            await asyncio.sleep(2)
-            p_text = await page.inner_text("body")
-            p_lines = [l.strip() for l in p_text.split('\n') if l.strip()]
-            
-            # 从页面文本 Fallback
-            def get_next(ks, key):
-                for i, ln in enumerate(ks):
-                    if key in ln and i+1 < len(ks): return ks[i+1]
-                return None
-            
-            if not sb_payload["brand"]: 
-                sb_payload["brand"] = get_next(p_lines, "Бренд")
-            if not sb_payload["listing_date"]:
-                raw_date = get_next(p_lines, "Появилось в Каспи")
-                if raw_date and re.match(r'\d{2}\.\d{2}\.\d{4}', raw_date):
-                    sb_payload["listing_date"] = datetime.strptime(raw_date[:10], "%d.%m.%Y").strftime("%Y-%m-%d")
-            
-            # 如果接口没给类目 ID，我们从详情页链接里抠最后一个
-            if not cat_code:
-                cat_link_el = page.locator('a[href*="/niche/category/"]').last
-                if await cat_link_el.count() > 0:
-                    href = await cat_link_el.get_attribute("href")
-                    # /niche/category/00002 -> 00002
-                    cat_code = href.split('/')[-1]
-                    if not sb_payload["category_tree"]:
-                        sb_payload["category_tree"] = (await cat_link_el.inner_text()).strip()
-        except: pass
-
-    # 3. 获取类目汇总数据 (90天)
+    # 4. 类目概况与 CR3 计算
     if cat_code:
-        cat_url = f"https://app.algatop.kz/api/v1/niche/categoryStatistic?categoryCode={cat_code}&startDate={start_str}&endDate={end_str}"
-        res_cat = await fetch_api(client, cat_url, f"https://app.algatop.kz/niche/category/{cat_code}")
+        # 类目 90 天总量
+        cat_stat_url = f"https://app.algatop.kz/api/v1/niche/categoryStatistic?categoryCode={cat_code}&startDate={start_date}&endDate={end_date}"
+        res_cat = await api_request(client, cat_stat_url, f"https://app.algatop.kz/niche/category/{cat_code}")
         if res_cat and res_cat.get("success"):
             c = res_cat.get("data", {})
             sb_payload["category_total_sales"] = int(c.get("sale_qty") or 0)
             sb_payload["category_total_products"] = int(c.get("sale_product_qty") or 0)
-            print(f"  [API] Cat Sales: {sb_payload['category_total_sales']}, Cat Products: {sb_payload['category_total_products']}")
+            print(f"  [Category] 总销: {sb_payload['category_total_sales']}, 商品数: {sb_payload['category_total_products']}")
 
-        # 4. 获取 CR3
-        list_url = f"https://app.algatop.kz/api/v1/niche/categoryListStatistic?categoryCode={cat_code}&startDate={start_str}&endDate={end_str}&offset=0&limit=10&sortField=sale_qty&sortOrder=desc"
-        res_list = await fetch_api(client, list_url, f"https://app.algatop.kz/niche/category/{cat_code}")
-        if res_list and res_list.get("success"):
-            items = res_list.get("data", {}).get("list", [])
-            top3_sum = sum([int(i.get("sale_qty") or 0) for i in items[:3]])
-            sb_payload["top3_sales_sum"] = top3_sum
-            print(f"  [API] Top3 Sales Sum: {top3_sum}")
+        # 品牌份额计算 CR3
+        share_url = f"https://app.algatop.kz/api/v1/niche/categoryStatisticBrandsLine?categoryCode={cat_code}&startDate={start_date}&endDate={end_date}"
+        res_share = await api_request(client, share_url, f"https://app.algatop.kz/niche/category/{cat_code}")
+        if res_share and res_share.get("success"):
+            shares = res_share.get("data", [])
+            top3_sum = sum([float(b.get('sale_amount') or 0) for b in shares[:3]])
+            total_sum = sum([float(b.get('sale_amount') or 0) for b in shares])
+            sb_payload["top3_sales_sum"] = int(top3_sum) # 类目总销售额前三品牌之和
+            if total_sum > 0:
+                print(f"  [CR3] 类目总额前三和: {int(top3_sum)}, 集中度: {(top3_sum/total_sum*100):.1f}%")
 
-    # Upsert to Supabase
+    # 写入 Supabase
     try:
         supabase.table("products_raw_data").upsert(sb_payload).execute()
-        print(f"  [OK] SKU {sku} inserted.")
-        return True
+        print(f"  ✅ [SUCCESS] SKU {sku} 入库成功")
     except Exception as e:
-        print(f"  [DB ERR] {e}")
-        return False
+        print(f"  ❌ [DB ERROR] {sku}: {e}")
 
-async def run_pipeline():
-    with open("d:/item/ProSourcing/output/kaspi_results.json", "r", encoding="utf-8") as f:
+# ==========================================
+# 流程入口
+# ==========================================
+async def main():
+    input_file = "d:/item/ProSourcing/output/kaspi_results.json"
+    if not os.path.exists(input_file):
+        print(f"错误: 找不到输入文件 {input_file}")
+        return
+
+    with open(input_file, "r", encoding="utf-8") as f:
         products = json.load(f)
-    print(f"Loaded {len(products)} products from Kaspi cache.")
+    print(f"加载马桶刷缓存数据: {len(products)} 条")
 
-    async with httpx.AsyncClient() as client:
-        success_count = 0
-        for p_data in products:
-            if await enrich_and_insert(client, p_data):
-                success_count += 1
-            await asyncio.sleep(1) # 礼貌抓取
-            
-    print(f"\nDone! {success_count}/{len(products)} products processed via API.")
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        # 并发量限制，防止被封
+        semaphore = asyncio.Semaphore(1) 
+        async def sem_task(p):
+            async with semaphore:
+                await enrich_and_insert(client, p)
+                await asyncio.sleep(1.5) # 稳一点
+
+        tasks = [sem_task(p) for p in products]
+        await asyncio.gather(*tasks)
+
+    print("\n流水线作业完成！请前往 Supabase 查看结果。")
 
 if __name__ == "__main__":
-    asyncio.run(run_pipeline())
+    asyncio.run(main())
