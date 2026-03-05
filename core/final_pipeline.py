@@ -36,11 +36,17 @@ def download_image(url, sku):
     except: pass
     return None
 
-def run_scoring_and_export(category_name="无人机"):
-    print(f"\n--- 正在运行 {category_name} 评分与导出流程 ---")
+def run_scoring_and_export(category_name="无人机", task_id=None):
+    print(f"\n--- 正在运行 {category_name} 评分与导出流程 (Task: {task_id}) ---")
     
     # 1. 从 Supabase 获取原始数据
-    response = supabase.table("products_raw_data").select("*").order("created_at", desc=True).limit(50).execute()
+    query = supabase.table("products_raw_data").select("*")
+    if task_id:
+        query = query.eq("task_id", task_id)
+    else:
+        query = query.order("created_at", desc=True).limit(50)
+    
+    response = query.execute()
     raw_products = response.data
     if not raw_products:
         print("错误: 数据库中未发现任何产品数据。")
@@ -92,6 +98,8 @@ def run_scoring_and_export(category_name="无人机"):
             "cr3_ratio": float(cr3),
             "total_score": float(total_score)
         }
+        if task_id:
+            calc_metric["task_id"] = task_id
         
         # 这里我们就顺手写回 Supabase
         try:

@@ -4,7 +4,7 @@ import os
 from playwright.async_api import async_playwright
 
 # 哥，这是您的新凭据
-USERNAME = "yujinxie2012@163.com"
+USERNAME = "xie@cogine.ai"
 PASSWORD = "Qq372655590."  # 包含小数点
 
 async def login_and_save_auth():

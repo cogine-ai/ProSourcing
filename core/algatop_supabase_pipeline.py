@@ -71,46 +71,52 @@ class ProSourcingCollector:
                 print(f"  [Kaspi Error] {sku}: {e}")
         return None
 
-    async def scrape_sku_with_stealth(self, p_brief):
+    async def scrape_sku_with_stealth(self, p_brief, task_id=None):
         sku = p_brief.get("sku")
-        print(f"\n--- 正在隐身采集 SKU: {sku} ---")
+        print(f"\n--- 正在隐身全量采集 SKU: {sku} ---")
         
-        # 结果 Payload
+        # 结果 Payload (对齐 V2.0 Schema)
         payload = {
             "sku": str(sku),
-            "product_name": p_brief.get("title", ""),
-            "product_url": "https://kaspi.kz" + p_brief.get("url", "") if "/p/" in p_brief.get("url", "") else p_brief.get("url"),
-            "image_url": p_brief.get("image_url"),
-            "reviews_count": int(p_brief.get("reviews", 0)),
-            "sales_3m": 0, "revenue_3m": 0, "rating": 0, "sellers": 0,
-            "brand": None, "listing_date": None, "category_tree": None,
-            "category_total_sales": 0, "category_total_products": 0, "top3_sales_sum": 0
+            "task_id": task_id,
+            "product_name": p_brief.get("title") or p_brief.get("product_name", ""),
+            "product_url": "https://kaspi.kz" + p_brief.get("url", "") if p_brief.get("url", "").startswith("/") else p_brief.get("url", ""),
+            "sale_price": float(p_brief.get("price") or 0),
+            "review_qty": int(p_brief.get("reviews") or 0),
+            "sale_qty": 0, 
+            "sale_amount": 0, 
+            "product_rate": 0, 
+            "merchant_count": 0,
+            "brand_name": None, 
+            "gen_brand_id": None,
+            "created_dt": None, 
+            "last_sale_date": None,
+            "amount_abc": None, 
+            "amount_prc": None,
+            "preview_image_list": None,
+            "category_name": None,
+            "category_ext_id": None,
+            "restrict_type": None
         }
 
-        # 1. 优先拿 Kaspi 实时对冲数据 (价格取 min)
+        # 1. 优先拿 Kaspi 实时对冲数据
         kaspi_data = await self.fetch_kaspi_realtime(sku)
         if kaspi_data:
-            payload["price"] = kaspi_data["price"]
-            payload["sellers"] = kaspi_data["sellers"]
-            print(f"  [Kaspi] 锁定最低价: {payload['price']}, 卖家数: {payload['sellers']}")
+            payload["sale_price"] = kaspi_data["price"]
+            payload["merchant_count"] = kaspi_data["sellers"]
+            print(f"  [Kaspi] 实时价格: {payload['sale_price']}, 商家数: {payload['merchant_count']}")
 
         # 2. 模拟真人在 Algatop 截包
         page = await self.context.new_page()
         try:
-            # 伪造随机延时
-            await asyncio.sleep(random.uniform(1, 3))
-            
-            # 使用官方 URL，自动利用 Cookie 完成授权
+            await asyncio.sleep(random.uniform(1, 2))
             url = f"https://app.algatop.kz/niche/product/{sku}"
             await page.goto(url, wait_until="domcontentloaded", timeout=40000)
             
-            # 零点击日期获取：直接在内核运行 JS 请求统计接口
-            # 构造 90 天日期
             today = datetime.now()
             s_date = (today - timedelta(days=90)).strftime("%Y%m%d")
             e_date = today.strftime("%Y%m%d")
 
-            # 拦截数据逻辑 (直接调用 API 并转发)
             js_code = f"""
                 async () => {{
                     try {{
@@ -123,43 +129,63 @@ class ProSourcingCollector:
             api_data = await page.evaluate(js_code)
             
             if api_data:
-                # 解析详情
                 raw_node = api_data['detail'].get('data')
                 node = raw_node[0] if isinstance(raw_node, list) and raw_node else (raw_node if isinstance(raw_node, dict) else {})
-                payload["brand"] = node.get("brand_name")
-                payload["listing_date"] = node.get("create_date")
-                payload["category_tree"] = node.get("category_name")
-                cat_code = node.get("category_code") or node.get("category_ext_id")
+                
+                # 核心字段映射 (对应 接口 4/5)
+                payload["brand_name"] = node.get("brand_name")
+                payload["gen_brand_id"] = node.get("gen_brand_id")
+                payload["created_dt"] = node.get("create_date")
+                payload["last_sale_date"] = node.get("last_sale_date")
+                payload["product_rate"] = float(node.get("product_rate") or 0)
+                payload["category_name"] = node.get("category_name")
+                payload["category_ext_id"] = node.get("category_ext_id")
+                payload["restrict_type"] = node.get("restrict_type")
+                
+                # 图片列表 (JSONB)
+                img_list_str = node.get("image_list")
+                if img_list_str:
+                    try:
+                        payload["preview_image_list"] = json.loads(img_list_str) if isinstance(img_list_str, str) else img_list_str
+                    except: pass
 
-                # 解析统计 (对齐 90 天)
+                # 统计数据映射
                 s_list = api_data['stats'].get('data', {}).get('statistic', [])
                 if s_list:
                     s = s_list[0]
-                    payload["sales_3m"] = int(s.get("sale_qty") or 0)
-                    payload["revenue_3m"] = float(s.get("sale_amount") or 0)
-                    # 如果 API 里的平均卖家数更有参考价值，可以视情况对冲
-                    if not payload["sellers"]: payload["sellers"] = int(s.get("merchant_count") or 0)
+                    payload["sale_qty"] = int(s.get("sale_qty") or 0)
+                    payload["sale_amount"] = float(s.get("sale_amount") or 0)
+                    payload["amount_abc"] = s.get("amount_abc")
+                    payload["amount_prc"] = float(s.get("amount_prc") or 0)
+                    if not payload["merchant_count"]: 
+                        payload["merchant_count"] = int(s.get("merchant_count") or 0)
                 
-                print(f"  [Algatop] 品牌: {payload['brand']}, 90天销量: {payload['sales_3m']}")
+                print(f"  [Algatop] 品牌: {payload['brand_name']}, ABC: {payload['amount_abc']}, 销量: {payload['sale_qty']}")
 
-                # 3. 如果拿到了 CatCode，顺手把类目汇总也做了
-                if cat_code:
-                    js_cat = f"""
-                        async () => {{
-                            const cat_stat = await fetch('/api/v1/niche/categoryStatistic?categoryCode={cat_code}&startDate={s_date}&endDate={e_date}').then(r => r.json());
-                            const cat_share = await fetch('/api/v1/niche/categoryStatisticBrandsLine?categoryCode={cat_code}&startDate={s_date}&endDate={e_date}').then(r => r.json());
-                            return {{ cat_stat, cat_share }};
-                        }}
-                    """
-                    cat_data = await page.evaluate(js_cat)
-                    if cat_data:
-                        cs = cat_data['cat_stat'].get('data', {})
-                        payload["category_total_sales"] = int(cs.get("sale_qty") or 0)
-                        payload["category_total_products"] = int(cs.get("sale_product_qty") or 0)
-                        
-                        shares = cat_data['cat_share'].get('data', [])
-                        if shares:
-                            payload["top3_sales_sum"] = int(sum([float(b.get('sale_amount') or 0) for b in shares[:3]]))
+                # 3. 类目大盘回填 (仅首个 SKU 执行或每任务执行一次)
+                if task_id:
+                    cat_code = node.get("category_ext_id")
+                    if cat_code:
+                        js_cat = f"""
+                            async () => {{
+                                try {{
+                                    const cat_stat = await fetch('/api/v1/niche/categoryStatistic?categoryCode={cat_code}&startDate={s_date}&endDate={e_date}').then(r => r.json());
+                                    const cat_trend = await fetch('/api/v1/niche/categoryStatisticLine?categoryCode={cat_code}&startDate={s_date}&endDate={e_date}').then(r => r.json());
+                                    return {{ cat_stat, cat_trend }};
+                                }} catch(e) {{ return null; }}
+                            }}
+                        """
+                        cat_res = await page.evaluate(js_cat)
+                        if cat_res:
+                            # 更新任务表
+                            update_task = {
+                                "category_id": cat_code,
+                                "category_stats": cat_res.get('cat_stat', {}).get('data', {}).get('statistic', [{}])[0],
+                                "trend_data": cat_res.get('cat_trend', {}).get('data', []),
+                                "up_categories": cat_res.get('cat_stat', {}).get('data', {}).get('up_categories_json')
+                            }
+                            supabase.table("analysis_tasks").update(update_task).eq("id", task_id).execute()
+                            print(f"  [Task Update] 类目大盘与趋势数据回填成功")
 
             # 写入 Supabase
             supabase.table("products_raw_data").upsert(payload).execute()
@@ -177,20 +203,30 @@ class ProSourcingCollector:
 # ==========================================
 # 入口
 # ==========================================
-async def main():
-    input_file = "d:/item/ProSourcing/output/kaspi_results.json"
+async def main(category=None, task_id=None, input_file=None):
+    if not input_file:
+        input_file = "d:/item/ProSourcing/output/kaspi_results.json"
+    
+    if not os.path.exists(input_file):
+        print(f"警告: {input_file} 不存在")
+        return
+
     with open(input_file, "r", encoding="utf-8") as f:
         products = json.load(f)
 
     collector = ProSourcingCollector()
     await collector.init()
     
-    # 严格限流，模拟真人节奏
-    for p in products:
-        await collector.scrape_sku_with_stealth(p)
-        await asyncio.sleep(random.uniform(5, 10)) # 哥，咱们慢一点，账号要紧
+    # 极其严格限流 (测试模式：前5条)
+    for p in products[:5]:
+        await collector.scrape_sku_with_stealth(p, task_id=task_id)
+        await asyncio.sleep(random.uniform(2, 4)) 
 
     await collector.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys
+    cat = sys.argv[1] if len(sys.argv) > 1 else None
+    tid = sys.argv[2] if len(sys.argv) > 2 else None
+    infile = sys.argv[3] if len(sys.argv) > 3 else None
+    asyncio.run(main(cat, tid, infile))

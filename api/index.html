@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProSourcing AI 选品工作台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            background-color: #0b0c10;
+            color: #e2e8f0;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            overflow: hidden;
+        }
+
+        .glass {
+            background: rgba(20, 22, 28, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .sidebar-item-active {
+            background: rgba(59, 130, 246, 0.1);
+            color: #3b82f6;
+            border-right: 3px solid #3b82f6;
+        }
+
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #1f2937;
+            border-radius: 10px;
+        }
+
+        .progress-bar {
+            height: 6px;
+            border-radius: 99px;
+            background: #1a1d27;
+            overflow: hidden;
+        }
+
+        .view-section {
+            display: none;
+        }
+
+        .view-section.active {
+            display: block;
+        }
+    </style>
+</head>
+
+<body class="flex h-screen overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside class="w-64 glass border-r border-gray-800 flex flex-col shrink-0">
+        <div class="p-8 border-b border-gray-800 flex items-center gap-3">
+            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-xl">P</div>
+            <span class="text-xl font-bold tracking-tight">ProSourcing</span>
+        </div>
+
+        <nav class="flex-1 p-4 space-y-2">
+            <button onclick="switchView('dashboard')" id="nav-dashboard"
+                class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all hover:bg-gray-800 sidebar-item-active">
+                <i data-lucide="layout-dashboard" class="w-4 h-4"></i> 首页大盘
+            </button>
+            <button onclick="switchView('pool')" id="nav-pool"
+                class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-gray-400 hover:bg-gray-800">
+                <i data-lucide="target" class="w-4 h-4"></i> 任务池
+            </button>
+            <button onclick="switchView('history')" id="nav-history"
+                class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-gray-400 hover:bg-gray-800">
+                <i data-lucide="history" class="w-4 h-4"></i> 历史任务
+            </button>
+        </nav>
+
+        <div class="p-6 border-t border-gray-800">
+            <div class="flex items-center gap-3 bg-gray-900/50 p-3 rounded-xl border border-gray-800">
+                <div
+                    class="w-8 h-8 rounded-full bg-blue-600/20 flex items-center justify-center border border-blue-500/30">
+                    <i data-lucide="user" class="w-4 h-4 text-blue-400"></i>
+                </div>
+                <div>
+                    <p class="text-[10px] text-gray-500 font-bold uppercase">PRO EXPERT</p>
+                    <p class="text-xs font-bold text-gray-200">哥，欢迎回来</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col min-w-0 bg-[#0b0c10]">
+        <header class="h-20 glass border-b border-gray-800 px-10 flex items-center justify-between shrink-0">
+            <h2 id="view-title" class="text-2xl font-bold text-white">首页大盘看板</h2>
+            <div class="flex gap-4">
+                <button onclick="refreshData()"
+                    class="p-2 glass rounded-lg text-gray-400 hover:text-white transition-all">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-10">
+
+            <!-- VIEW: DASHBOARD -->
+            <section id="view-dashboard" class="view-section active space-y-10">
+                <div class="grid grid-cols-4 gap-6">
+                    <div
+                        class="glass p-6 rounded-2xl border border-gray-800 shadow-sm transition-all hover:scale-[1.02]">
+                        <div class="text-blue-400 mb-4 opacity-80"><i data-lucide="package"></i></div>
+                        <div class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">监控类目</div>
+                        <div class="text-3xl font-black">1,240+</div>
+                    </div>
+                    <div
+                        class="glass p-6 rounded-2xl border border-gray-800 shadow-sm transition-all hover:scale-[1.02]">
+                        <div class="text-emerald-400 mb-4 opacity-80"><i data-lucide="bar-chart-3"></i></div>
+                        <div class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">活跃卖家</div>
+                        <div class="text-3xl font-black">12K+</div>
+                    </div>
+                    <div
+                        class="glass p-6 rounded-2xl border border-gray-800 shadow-sm transition-all hover:scale-[1.02]">
+                        <div class="text-indigo-400 mb-4 opacity-80"><i data-lucide="trending-up"></i></div>
+                        <div class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">月均增速</div>
+                        <div class="text-3xl font-black">14.2%</div>
+                    </div>
+                    <div
+                        class="glass p-6 rounded-2xl border border-gray-800 shadow-sm transition-all hover:scale-[1.02]">
+                        <div class="text-rose-400 mb-4 opacity-80"><i data-lucide="target"></i></div>
+                        <div class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">蓝海系数</div>
+                        <div class="text-3xl font-black">0.82</div>
+                    </div>
+                </div>
+
+                <div class="glass rounded-3xl border border-gray-800 p-8">
+                    <h3 class="text-lg font-bold mb-8 flex items-center gap-2">
+                        <i data-lucide="bar-chart-3" class="text-blue-500"></i> 20大热门一级类目「销品比」大盘
+                    </h3>
+                    <div class="grid grid-cols-2 gap-x-16 gap-y-8" id="top-categories-grid">
+                        <div class="col-span-2 text-center py-20 text-gray-600 italic">正在加载类目数据...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW: POOL -->
+            <section id="view-pool" class="view-section">
+                <div class="glass rounded-3xl border border-gray-800 p-8">
+                    <div class="flex gap-4 mb-8 overflow-x-auto pb-4" id="main-category-tabs">
+                        <!-- Main categories tabs go here -->
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="sub-category-grid">
+                        <!-- Sub categories with sniper button go here -->
+                        <div class="col-span-full py-20 flex flex-col items-center gap-4 text-gray-600">
+                            <i data-lucide="layers" class="w-12 h-12 opacity-20"></i>
+                            <p>请同步品类数据以激活任务池</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW: HISTORY -->
+            <section id="view-history" class="view-section">
+                <div class="glass rounded-3xl border border-gray-800 overflow-hidden shadow-2xl">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-gray-900/50">
+                            <tr class="border-b border-gray-800 text-[11px] text-gray-500 uppercase font-bold">
+                                <th class="p-6 px-10">执行时间</th>
+                                <th class="p-6">分析类目</th>
+                                <th class="p-6">执行状态</th>
+                                <th class="p-6">实时进度</th>
+                                <th class="p-6 text-right px-10">操作/报告</th>
+                            </tr>
+                        </thead>
+                        <tbody id="task-history-body" class="divide-y divide-gray-800/50">
+                            <!-- Tasks go here -->
+                            <tr>
+                                <td colspan="5" class="p-20 text-center text-gray-600 italic">正在加载历史记录...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <script>
+        const API_BASE = "http://localhost:8000";
+        let currentView = 'dashboard';
+
+        function switchView(view) {
+            currentView = view;
+            // Update Active Nav
+            const navs = ['dashboard', 'pool', 'history'];
+            navs.forEach(n => {
+                const el = document.getElementById(`nav-${n}`);
+                if (n === view) {
+                    el.classList.add('sidebar-item-active');
+                    el.classList.remove('text-gray-400');
+                } else {
+                    el.classList.remove('sidebar-item-active');
+                    el.classList.add('text-gray-400');
+                }
+            });
+
+            // Update View Visibility
+            navs.forEach(n => document.getElementById(`view-${n}`).classList.remove('active'));
+            document.getElementById(`view-${view}`).classList.add('active');
+
+            // Update Title
+            const titles = { 'dashboard': '首页大盘看板', 'pool': '类目任务池', 'history': '任务执行历史' };
+            document.getElementById('view-title').innerText = titles[view];
+
+            refreshData();
+        }
+
+        async function refreshData() {
+            if (currentView === 'dashboard') fetchTopStats();
+            else if (currentView === 'pool') fetchCategoryTree();
+            else if (currentView === 'history') fetchHistory();
+        }
+
+        async function fetchTopStats() {
+            try {
+                const res = await fetch(`${API_BASE}/api/categories/top_stats`);
+                const data = await res.json();
+                const grid = document.getElementById('top-categories-grid');
+                if (data.length === 0) {
+                    grid.innerHTML = '<div class="col-span-2 text-center py-10 text-gray-500">暂无大盘数据，请先运行同步脚本。</div>';
+                    return;
+                }
+                grid.innerHTML = data.map(cat => `
+                    <div class="flex flex-col gap-2">
+                        <div class="flex justify-between text-xs font-bold">
+                            <span class="text-gray-100">${cat.name}</span>
+                            <span class="text-blue-400">热度: ${(cat.sales_to_product_ratio * 100).toFixed(2)}%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="bg-gradient-to-r from-blue-600 to-indigo-500 h-full rounded-full" 
+                                 style="width: ${Math.min(cat.sales_to_product_ratio * 200, 100)}%"></div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) { }
+        }
+
+        async function fetchCategoryTree() {
+            try {
+                const res = await fetch(`${API_BASE}/api/categories/tree`);
+                const data = await res.json();
+                const grid = document.getElementById('sub-category-grid');
+                const tabs = document.getElementById('main-category-tabs');
+
+                const topLevel = data.filter(c => c.is_top_level);
+                const subLevel = data.filter(c => !c.is_top_level);
+
+                if (topLevel.length === 0) return;
+
+                tabs.innerHTML = topLevel.map(c => `
+                    <button class="px-5 py-2 rounded-xl text-xs font-bold whitespace-nowrap bg-gray-800 text-gray-400 hover:bg-gray-700 transition-all">
+                        ${c.name}
+                    </button>
+                `).join('');
+
+                grid.innerHTML = subLevel.map(c => `
+                    <div class="bg-gray-900/40 border border-gray-800 p-5 rounded-2xl flex justify-between items-center group hover:border-blue-500/30 transition-all">
+                        <div class="flex flex-col gap-1">
+                            <span class="text-sm font-bold text-gray-200">${c.name}</span>
+                            <span class="text-[10px] text-gray-500 uppercase tracking-tighter">Leaf Category</span>
+                        </div>
+                        <button onclick="startTask('${c.name}')" class="w-10 h-10 bg-blue-600/10 text-blue-400 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 transition-all hover:bg-blue-600 hover:text-white">
+                            <i data-lucide="play" class="w-4 h-4" fill="currentColor"></i>
+                        </button>
+                    </div>
+                `).join('');
+                lucide.createIcons();
+            } catch (e) { }
+        }
+
+        async function fetchHistory() {
+            try {
+                const res = await fetch(`${API_BASE}/api/tasks/history`);
+                const data = await res.json();
+                const body = document.getElementById('task-history-body');
+
+                body.innerHTML = data.map(task => {
+                    const statusClass = task.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' :
+                        (task.status === 'failed' ? 'bg-rose-500/10 text-rose-500 border-rose-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20');
+
+                    return `
+                        <tr class="hover:bg-white/[0.02] transition-colors">
+                            <td class="p-6 px-10 text-[11px] text-gray-500 font-mono">${task.created_at?.slice(0, 16).replace('T', ' ')}</td>
+                            <td class="p-6 font-bold text-sm">${task.category}</td>
+                            <td class="p-6">
+                                <span class="px-3 py-1 rounded-full text-[9px] font-black uppercase border ${statusClass}">
+                                    ${task.status}
+                                </span>
+                            </td>
+                            <td class="p-6 w-48">
+                                <div class="w-full bg-gray-900 rounded-full h-1 overflow-hidden">
+                                    <div class="bg-blue-500 h-full transition-all duration-500" style="width: ${task.progress || 0}%"></div>
+                                </div>
+                            </td>
+                            <td class="p-6 text-right px-10">
+                                ${task.status === 'completed' ? `
+                                    <a href="${API_BASE}/api/download?path=${encodeURIComponent(task.excel_path)}" 
+                                       class="inline-flex items-center gap-2 text-blue-400 hover:underline text-xs font-bold">
+                                        <i data-lucide="download" class="w-3 h-3"></i> 报告下载
+                                    </a>
+                                ` : '<span class="text-gray-700">-</span>'}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+                lucide.createIcons();
+            } catch (e) { }
+        }
+
+        async function startTask(categoryName) {
+            try {
+                const res = await fetch(`${API_BASE}/api/tasks/category`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ category: categoryName })
+                });
+                if (res.ok) {
+                    alert(`任务已投递: ${categoryName}`);
+                    switchView('history');
+                }
+            } catch (e) { }
+        }
+
+        // Initialize
+        lucide.createIcons();
+        fetchTopStats();
+
+        // Auto Poll for History
+        setInterval(() => {
+            if (currentView === 'history') fetchHistory();
+        }, 3000);
+    </script>
+</body>
+
+</html>

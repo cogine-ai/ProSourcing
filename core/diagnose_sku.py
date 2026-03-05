@@ -33,15 +33,9 @@ async def diagnose_sku():
         resp_detail = await client.get(detail_url, headers=HEADERS)
         if resp_detail.status_code == 200:
             raw_data = resp_detail.json().get("data", {})
-            d = raw_data[0] if isinstance(raw_data, list) and raw_data else (raw_data if isinstance(raw_data, dict) else {})
-            print(f"\n[Algatop Detail]")
-            print(f"  Name: {d.get('product_name')}")
-            print(f"  Brand: {d.get('brand_name')}")
-            # 查找可能的 cat_code 字段
-            cat_fields = {k: v for k, v in d.items() if 'cat' in k.lower() or 'id' in k.lower()}
-            print(f"  Category Fields: {cat_fields}")
-            cat_code = d.get('category_code') or d.get('category_ext_id') or d.get('p_category_code')
-            print(f"  Detected CatCode: {cat_code}")
+            with open("d:/item/ProSourcing/debug_detail.json", "w", encoding="utf-8") as f:
+                json.dump(raw_data, f, indent=2, ensure_ascii=False)
+            print(f"\n[Algatop Detail] 已保存至 d:/item/ProSourcing/debug_detail.json")
         
         stat_url = f"https://app.algatop.kz/api/v1/niche/product/statistic?code={sku}&startDate={start_str}&endDate={end_str}"
         resp_stat = await client.get(stat_url, headers=HEADERS)

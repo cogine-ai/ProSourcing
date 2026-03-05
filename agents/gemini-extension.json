@@ -1,0 +1,42 @@
+{
+    "name": "buildatscale-gemini-skills",
+    "version": "1.0.0",
+    "contextFileName": "GEMINI.md",
+    "excludeTools": [],
+    "skills": {
+        "nano-banana-pro": {
+            "name": "nano-banana-pro",
+            "description": "Nano Banana Pro (nano-banana-pro) image generation skill. Use this skill when the user asks to \"generate an image\", \"generate images\", \"create an image\", \"make an image\", uses \"nano banana\", or requests multiple images like \"generate 5 images\". Generates images using Google's Gemini 2.5 Flash for any purpose - frontend designs, web projects, illustrations, graphics, hero images, icons, backgrounds, or standalone artwork. Invoke this skill for ANY image generation request.",
+            "triggers": [
+                "gemini",
+                "image-generation",
+                "ai",
+                "frontend",
+                "design",
+                "visual-assets",
+                "nano banana",
+                "generate image",
+                "create image",
+                "make image"
+            ],
+            "path": "./skills/nano-banana-pro"
+        },
+        "frontend-design": {
+            "name": "frontend-design",
+            "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, or applications. Generates creative, polished code that avoids generic AI aesthetics.",
+            "triggers": [
+                "frontend",
+                "design",
+                "ui",
+                "web",
+                "component",
+                "page",
+                "interface",
+                "landing page",
+                "dashboard",
+                "website"
+            ],
+            "path": "./skills/frontend-design"
+        }
+    }
+}

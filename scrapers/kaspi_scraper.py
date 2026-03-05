@@ -17,11 +17,13 @@ class KaspiScraper(BaseScraper):
         products = []
         page_num = 1
 
+        import urllib.parse
+        encoded_kw = urllib.parse.quote(keyword)
         while len(products) < limit and page_num <= 10:
             if page_num == 1:
-                search_url = f"https://kaspi.kz/shop/search/?text={keyword}"
+                search_url = f"https://kaspi.kz/shop/search/?text={encoded_kw}"
             else:
-                search_url = f"https://kaspi.kz/shop/search/?text={keyword}&page={page_num}"
+                search_url = f"https://kaspi.kz/shop/search/?text={encoded_kw}&page={page_num}"
 
             print(f"[Kaspi] Page {page_num} -> {search_url} (have {len(products)} so far)")
             await self.page.goto(search_url)

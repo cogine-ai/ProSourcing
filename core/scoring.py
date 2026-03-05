@@ -7,11 +7,12 @@ class ScoringEngine:
     """
     
     @staticmethod
-    def score_monthly_sales(sales):
-        if sales >= 500: return 4
-        if sales >= 200: return 3
-        if sales >= 100: return 2
-        if sales >= 60: return 1
+    def score_monthly_sales(monthly_sales):
+        """直接使用 1M 销量数据进行评分"""
+        if monthly_sales >= 500: return 4
+        if monthly_sales >= 200: return 3
+        if monthly_sales >= 100: return 2
+        if monthly_sales >= 60: return 1
         return 0
 
     @staticmethod
@@ -53,6 +54,7 @@ class MarketAnalyzer:
 
     @staticmethod
     def calculate_avg_sales_per_listing(total_category_sales, listing_count):
+        """计算销品比：用于判断品类潜力"""
         if listing_count == 0:
             return 0
         return total_category_sales / listing_count
