@@ -99,4 +99,57 @@
   .rounded-card-force {
     border-radius: 16px !important;
   }
+
+  /* --- 全局美化滚动条 --- */
+  
+  /* 设置滚动条宽度 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  /* 滚动条轨道 */
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* 滚动条滑块 */
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.2);
+    border-radius: 10px;
+    transition: background 0.3s ease;
+  }
+
+  /* 鼠标悬停在滑块上 */
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--primary) / 0.5);
+  }
+
+  /* Firefox 适配 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
+  }
+
+  /* 特殊类名：custom-scrollbar 用于需要更明显标识的容器 */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--primary) / 0.6);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  /* 防止页面因为滚动条出现而抖动 */
+  html {
+    scrollbar-gutter: stable;
+  }
 }
