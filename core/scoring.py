@@ -1,57 +1,94 @@
 import pandas as pd
 import numpy as np
 
+# 哥，这是默认配置，以后可以在后台动态改，不用重新部署代码
+DEFAULT_CONFIG = {
+    "monthly_sales": {
+        "ranges": [1000, 601, 401, 201, 101, 60],
+        "scores": [10, 8, 6, 4, 2, 1, 0]
+    },
+    "reviews": {
+        "ranges": [400, 200, 100, 50, 15],
+        "scores": [3, 2, 1.5, 1, 0.5, 0]
+    },
+    "price": {
+        "ranges": [8000, 3000, 1500],
+        "scores": [0, 1, 0.5, 0]
+    },
+    "avg_sales": {
+        "ranges": [80, 50, 30, 15],
+        "scores": [4, 3, 2, 1, 0]
+    },
+    "days_per_review": {
+        "ranges": [0.5, 1, 2, 2.5],
+        "scores": [10, 5, 3, 1, 0]
+    }
+}
+
+# 内存中的活跃配置，初始使用硬编码默认值
+ACTIVE_CONFIG = DEFAULT_CONFIG.copy()
+
 class ScoringEngine:
     """
-    根据用户提供的评分规范（图1）进行商品评分
+    根据算法配置进行动态评分。
+    哥，现在的逻辑全是从 ACTIVE_CONFIG 读，如果你在后台改了，这里立刻生效。
     """
     
     @staticmethod
+    def update_config(new_config):
+        global ACTIVE_CONFIG
+        ACTIVE_CONFIG = new_config
+        print("ScoringEngine: Configuration updated in memory.")
+
+    @staticmethod
+    def get_config():
+        return ACTIVE_CONFIG
+
+    @staticmethod
     def score_monthly_sales(monthly_sales):
-        """月销量评分"""
-        if monthly_sales > 500: return 4
-        if 200 <= monthly_sales <= 500: return 3
-        if 100 <= monthly_sales < 200: return 2
-        if 60 <= monthly_sales < 100: return 1
-        return 0
+        conf = ACTIVE_CONFIG["monthly_sales"]
+        for i, threshold in enumerate(conf["ranges"]):
+            if monthly_sales >= threshold:
+                return conf["scores"][i]
+        return conf["scores"][-1]
 
     @staticmethod
     def score_reviews(reviews):
-        """评论数量评分"""
-        if reviews > 400: return 3
-        if 200 <= reviews <= 400: return 2
-        if 100 <= reviews < 200: return 1.5
-        if 50 <= reviews < 100: return 1
-        if 15 <= reviews <= 50: return 0.5
-        return 0  # <15 不计入/0分
+        conf = ACTIVE_CONFIG["reviews"]
+        for i, threshold in enumerate(conf["ranges"]):
+            if reviews >= threshold:
+                return conf["scores"][i]
+        return conf["scores"][-1]
 
     @staticmethod
     def score_price(price):
-        """商品价格评分"""
-        if price > 8000: return 0
-        if 3000 <= price <= 8000: return 1
-        if 1500 <= price < 3000: return 0.5
-        return 0  # <1500 为 0分
+        conf = ACTIVE_CONFIG["price"]
+        # 价格逻辑略有不同：大于最高阈值得0分
+        if price > conf["ranges"][0]:
+            return conf["scores"][0]
+        for i, threshold in enumerate(conf["ranges"][1:], 1):
+            if price >= threshold:
+                return conf["scores"][i]
+        return conf["scores"][-1]
 
     @staticmethod
     def score_avg_sales_per_listing(avg_sales):
-        """类目平均销量（单品均销/销品比）评分"""
-        if avg_sales > 80: return 4
-        if 50 <= avg_sales <= 80: return 3
-        if 30 <= avg_sales < 50: return 2
-        if 15 <= avg_sales < 30: return 1
-        return 0  # <=15 为 0分
+        conf = ACTIVE_CONFIG["avg_sales"]
+        for i, threshold in enumerate(conf["ranges"]):
+            if avg_sales >= threshold:
+                return conf["scores"][i]
+        return conf["scores"][-1]
 
     @staticmethod
     def score_days_per_review(days, reviews):
-        """上架天数 / 评论数 评分 (成长潜力)"""
         if reviews == 0: return 0
         ratio = days / reviews
-        if ratio <= 0.5: return 10
-        if 0.5 < ratio <= 1: return 5
-        if 1 < ratio <= 2: return 3
-        if 2 < ratio <= 2.5: return 1
-        return 0 # >2.5 为 0分
+        conf = ACTIVE_CONFIG["days_per_review"]
+        # 天数/评论比：越小得分越高
+        for i, threshold in enumerate(conf["ranges"]):
+            if ratio <= threshold:
+                return conf["scores"][i]
+        return conf["scores"][-1]
 
 class MarketAnalyzer:
     """

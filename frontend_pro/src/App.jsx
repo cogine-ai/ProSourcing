@@ -31,10 +31,13 @@ import {
 
 const API_BASE = "http://localhost:8000";
 
-const PageHeader = ({ title, description }) => (
-    <div className="mb-10 animate-in fade-in slide-in-from-left-4 duration-500">
-        <h1 className="text-3xl font-black text-foreground tracking-tight mb-2">{title}</h1>
-        <p className="text-muted-foreground text-sm font-medium">{description}</p>
+const PageHeader = ({ title, description, actions }) => (
+    <div className="mb-8 flex justify-between items-start animate-in fade-in slide-in-from-left-4 duration-500">
+        <div>
+            <h1 className="text-3xl font-black text-foreground tracking-tight mb-2">{title}</h1>
+            <p className="text-muted-foreground text-sm font-medium">{description}</p>
+        </div>
+        {actions && <div className="flex gap-3">{actions}</div>}
     </div>
 );
 
@@ -108,12 +111,33 @@ const StatCard = ({ label, value, icon }) => (
 );
 
 // --- 原子组件：类目卡片 ---
+const getCategoryDisplayName = (cat) => {
+    if (!cat) return "未知品类";
+    // 如果是对象结构 (cat_stats)，优先找 category_name 并拆分
+    const fullName = cat?.category_name || cat?.category || "";
+    const match = fullName.match(/\((.*?)\)/);
+    if (match) return match[1];
+
+    // 兜底：如果是 RPA采集_... 这种带下划线的，尝试拆分
+    if (fullName.includes('_')) {
+        const parts = fullName.split('_');
+        if (parts.length > 1) {
+            const subMatch = parts[1].match(/\((.*?)\)/);
+            if (subMatch) return subMatch[1];
+            return parts[1];
+        }
+    }
+
+    return fullName.split('-')[0];
+};
+
 const CategoryCard = ({ cat }) => {
     const ratio = cat.sale_product_qty > 0 ? (cat.monthly_sales / cat.sale_product_qty).toFixed(2) : 0;
 
     // 拆分中俄双语：假设格式为 "俄语 (中文)"
-    const nameParts = cat.category_name.match(/^(.*)\s\((.*)\)$/);
-    const ruName = nameParts ? nameParts[1] : cat.category_name;
+    const safeCategoryName = cat?.category_name || "";
+    const nameParts = safeCategoryName.match(/^(.*)\s\((.*)\)$/);
+    const ruName = nameParts ? nameParts[1] : safeCategoryName;
     const zhName = nameParts ? nameParts[2] : "";
 
     return (
@@ -145,7 +169,7 @@ const CategoryCard = ({ cat }) => {
                 <div className="flex justify-between items-center">
                     <div className="flex flex-col">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-primary/50">销品比效率</p>
-                        <p className="text-[10px] text-muted-foreground/20 font-mono">RATIO ANALYSIS</p>
+
                     </div>
                     <p className="text-3xl font-black text-primary font-mono tracking-tighter">{ratio}</p>
                 </div>
@@ -189,6 +213,7 @@ const App = () => {
     const [loading, setLoading] = useState(false);
     const [reportTab, setReportTab] = useState('metrics');
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
+    const [algoConfig, setAlgoConfig] = useState(null); // 哥，这是存放算法配置的状态
 
     const [expandedNodes, setExpandedNodes] = useState(new Set());
 
@@ -211,7 +236,7 @@ const App = () => {
     // Helper for status colors
     const getStatusColor = (status) => {
         switch (status) {
-            case 'completed': return 'border-emerald-600/50 text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-400';
+            case 'completed': return 'border-emerald-600/50 text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-600 dark:text-emerald-400';
             case 'pending':
             case 'running':
             case 'crawling':
@@ -273,18 +298,66 @@ const App = () => {
     // 数据获取
     useEffect(() => {
         fetchTopStats();
+        fetchGlobalStats();
         fetchHistory();
         fetchAllCategories();
         const interval = setInterval(fetchHistory, 5000);
+        fetchAlgoConfig();
         return () => clearInterval(interval);
     }, []);
+
+    const fetchAlgoConfig = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/algo/config`);
+            const data = await res.json();
+            setAlgoConfig(data);
+        } catch (err) { console.error("Fetch algo config failed", err); }
+    };
+
+    const handleSaveAlgoConfig = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/algo/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(algoConfig)
+            });
+            if (res.ok) {
+                alert("配置已保存，下次采集任务生效");
+            }
+        } catch (err) { alert("保存失败了，哥你看看网络？"); }
+    };
+
+    const handleResetAlgoConfig = async () => {
+        if (!confirm("确定要恢复默认设置吗？")) return;
+        try {
+            const res = await fetch(`${API_BASE}/api/algo/reset`, { method: 'POST' });
+            if (res.ok) {
+                alert("已恢复默认配置！");
+                fetchAlgoConfig();
+            }
+        } catch (err) { console.error("Reset failed", err); }
+    };
+
+    const updateAlgoConfigValue = (metric, index, value, type = 'scores') => {
+        const newConf = { ...algoConfig };
+        const val = parseFloat(value) || 0;
+        newConf[metric][type][index] = val;
+        setAlgoConfig(newConf);
+    };
+
+    const fetchGlobalStats = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/market/global_stats`);
+            const data = await res.json();
+            setGlobalStats(data);
+        } catch (err) { console.error("Fetch global stats failed", err); }
+    };
 
     const fetchTopStats = async () => {
         try {
             const res = await fetch(`${API_BASE}/api/categories/top_stats`);
             const data = await res.json();
             setCategories(data);
-            setGlobalStats(prev => ({ ...prev, top_cat_count: data.length }));
         } catch (err) { console.error("Fetch top stats failed", err); }
     };
 
@@ -473,53 +546,26 @@ const App = () => {
 
                         {/* 页面标题区 */}
                         {!(activeTab === 'archives' && viewMode === 'detail') && (
-                            activeTab === 'archives' ? (
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-                                    <div>
-                                        <h1 className="text-3xl font-black text-foreground tracking-tight uppercase">选品报告</h1>
-                                        <p className="text-sm text-muted-foreground mt-1 font-medium opacity-60">查看AI生成的选品分析结果</p>
-                                    </div>
-
-                                    {/* 搜索与筛选区域 */}
-                                    <div className="flex flex-wrap items-center gap-3">
-                                        <div className="relative">
-                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
-                                            <input
-                                                type="text"
-                                                placeholder="搜索报告名称..."
-                                                value={reportSearch}
-                                                onChange={(e) => setReportSearch(e.target.value)}
-                                                className="pl-9 pr-4 py-2 bg-card border border-border/50 rounded-lg text-xs w-48 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all font-medium"
-                                            />
-                                        </div>
-                                        <select
-                                            value={reportStatus}
-                                            onChange={(e) => setReportStatus(e.target.value)}
-                                            className="bg-card border border-border/50 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all font-medium cursor-pointer"
+                            <PageHeader
+                                title={activeTab === 'algo' ? "算法配置" : currentTabInfo?.label}
+                                description={activeTab === 'algo' ? "设置商品评分维度权重与逻辑规则" : currentTabInfo?.description}
+                                actions={activeTab === 'algo' ? (
+                                    <>
+                                        <button
+                                            onClick={handleResetAlgoConfig}
+                                            className="px-5 py-2 text-[10px] font-black uppercase tracking-widest bg-muted border border-border hover:bg-muted/80 rounded-md transition-all shadow-sm"
                                         >
-                                            <option value="all">全部状态</option>
-                                            <option value="completed">已完成</option>
-                                            <option value="running">生成中</option>
-                                            <option value="failed">失败</option>
-                                        </select>
-                                        <select
-                                            value={reportTime}
-                                            onChange={(e) => setReportTime(e.target.value)}
-                                            className="bg-card border border-border/50 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all font-medium cursor-pointer"
+                                            重置默认
+                                        </button>
+                                        <button
+                                            onClick={handleSaveAlgoConfig}
+                                            className="px-6 py-2 text-[10px] font-black uppercase tracking-widest bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90 rounded-md transition-all"
                                         >
-                                            <option value="all">全部时间</option>
-                                            <option value="7d">近 7 天</option>
-                                            <option value="30d">近 30 天</option>
-                                            <option value="this_month">本月</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            ) : (
-                                <PageHeader
-                                    title={currentTabInfo?.label}
-                                    description={currentTabInfo?.description}
-                                />
-                            )
+                                            保存配置
+                                        </button>
+                                    </>
+                                ) : null}
+                            />
                         )}
 
                         {/* --- 视图：首页 --- */}
@@ -529,7 +575,7 @@ const App = () => {
                                     <StatCard label="入库的一级品类数量" value={globalStats.top_cat_count} icon={<Package className="text-blue-500" />} />
                                     <StatCard label="最小品类数据" value={globalStats.min_cat_count} icon={<BarChart3 className="text-emerald-500" />} />
                                     <StatCard label="商品sku数据" value={globalStats.sku_count} icon={<TrendingUp className="text-indigo-500" />} />
-                                    <StatCard label="已生成选品报告数量" value={tasks.filter(t => t.status === 'completed').length} icon={<History className="text-rose-500" />} />
+                                    <StatCard label="已生成选品报告数量" value={globalStats.report_count || tasks.filter(t => t.status === 'completed').length} icon={<History className="text-rose-500" />} />
                                 </div>
 
                                 <div className={PDL.spacing.section}>
@@ -605,8 +651,8 @@ const App = () => {
                                                                 {/* Header */}
                                                                 <div className="flex justify-between items-start mb-4 border-b border-border/40 pb-3">
                                                                     <div className="pr-3 flex-1 min-w-0">
-                                                                        <h4 className="font-bold text-foreground text-base truncate" title={task.category}>
-                                                                            {task.category}-{new Date(task.created_at).toLocaleDateString().replace(/\//g, '')}-{task.id.slice(0, 4)}
+                                                                        <h4 className="font-black text-foreground text-xl truncate" title={task.category}>
+                                                                            {getCategoryDisplayName(task)}
                                                                         </h4>
                                                                         <p className="text-xs text-muted-foreground mt-1 tracking-tight truncate">
                                                                             {formatDateTime(task.created_at)}
@@ -657,7 +703,7 @@ const App = () => {
                                                                             </div>
                                                                             <div className="flex flex-col px-1">
                                                                                 <span className="text-[10px] text-muted-foreground mb-1 font-bold">类目销量</span>
-                                                                                <span className="text-xl font-black text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-0.5">
+                                                                                <span className="text-xl font-black text-emerald-600 dark:text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-0.5">
                                                                                     {task.category_stats?.sale_qty?.toLocaleString() || '--'} <ArrowUpRight size={14} />
                                                                                 </span>
                                                                             </div>
@@ -743,31 +789,32 @@ const App = () => {
                                                     <div className="flex flex-col items-end border-l border-border/40 pl-8">
                                                         <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">执行时长</span>
                                                         <span className="text-xs font-black text-foreground">
-                                                            {(() => {
+                                                            {selectedTask?.duration || (() => {
                                                                 if (!selectedTask?.created_at || !selectedTask?.finished_at) return '--';
                                                                 const start = new Date(selectedTask.created_at);
                                                                 const end = new Date(selectedTask.finished_at);
                                                                 const diff = Math.floor((end - start) / 1000);
                                                                 const m = Math.floor(diff / 60);
                                                                 const s = diff % 60;
-                                                                return `${m}分${s}秒`;
+                                                                return m > 0 ? `${m}m ${s}s` : `${s}s`;
                                                             })()}
                                                         </span>
                                                     </div>
-                                                </div>
-                                                <div className="flex flex-col items-end">
-                                                    <div className="flex items-center gap-3">
-                                                        <h2 className="text-sm font-black text-foreground">{selectedTask?.category || '类目任务名称'}</h2>
-                                                        {selectedTask?.excel_path && (
-                                                            <a
-                                                                href={`${API_BASE}/api/download?path=${encodeURIComponent(selectedTask.excel_path)}`}
-                                                                className="text-[10px] font-bold text-emerald-500 hover:underline"
-                                                            >
-                                                                下载结果 EXCEL
-                                                            </a>
-                                                        )}
+                                                    <div className="flex flex-col items-end">
+                                                        <div className="flex items-center gap-4">
+                                                            <h2 className="text-[32px] font-black text-foreground leading-tight tracking-tighter">
+                                                                {getCategoryDisplayName(selectedTask)}
+                                                            </h2>
+                                                            {selectedTask?.excel_path && (
+                                                                <a
+                                                                    href={`${API_BASE}/api/download?path=${encodeURIComponent(selectedTask.excel_path)}`}
+                                                                    className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-[10px] font-black text-emerald-500 uppercase tracking-widest hover:bg-emerald-500/20 transition-all self-center"
+                                                                >
+                                                                    EXCEL
+                                                                </a>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                    <p className="text-[10px] text-muted-foreground font-mono opacity-50">{selectedTask?.id}</p>
                                                 </div>
                                             </div>
                                             <div className="flex gap-2">
@@ -775,13 +822,13 @@ const App = () => {
                                                     onClick={() => setReportTab('metrics')}
                                                     className={`px-6 py-2 text-xs font-black uppercase tracking-widest transition-all border-b-2 ${reportTab === 'metrics' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
                                                 >
-                                                    指标详解概况 (METRICS FOCUS)
+                                                    指标详解概况
                                                 </button>
                                                 <button
                                                     onClick={() => setReportTab('raw')}
                                                     className={`px-6 py-2 text-xs font-black uppercase tracking-widest transition-all border-b-2 ${reportTab === 'raw' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
                                                 >
-                                                    采集原始数据 (RAW INTELLIGENCE)
+                                                    采集原始数据
                                                 </button>
                                             </div>
                                         </div>
@@ -801,7 +848,7 @@ const App = () => {
                                                                         const raw = tp.products_raw_data;
 
                                                                         // Extract create date safely
-                                                                        const createDateOnly = raw.created_dt ? raw.created_dt.split(' ')[0] : '--';
+                                                                        const createDateOnly = raw.created_dt ? raw.created_dt.substring(0, 10) : '--';
                                                                         const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : '--';
                                                                         const ratingRatio = raw.review_qty > 0 && listedDays !== '--' ? (listedDays / raw.review_qty).toFixed(2) : '--';
 
@@ -813,12 +860,12 @@ const App = () => {
                                                                                 </a>
 
                                                                                 {/* 2. 中间商品名称及附加信息区 (固定宽度或比例) */}
-                                                                                <div className="w-[30%] min-w-[220px] max-w-[280px] flex flex-col justify-between h-full pr-4 border-r border-border/30">
+                                                                                <div className="w-[25%] min-w-[180px] max-w-[240px] flex flex-col justify-between h-full pr-4 border-r border-border/30">
                                                                                     <a href={raw.product_url} target="_blank" rel="noopener noreferrer" className="text-[13px] font-bold text-foreground hover:text-primary transition-colors leading-snug line-clamp-2" title={raw.product_name}>
                                                                                         {raw.product_name || '未知商品名称'}
                                                                                     </a>
                                                                                     <div className="flex gap-2 mt-2 items-center">
-                                                                                        <span className="text-[10px] font-mono text-muted-foreground/60 font-medium">{listedDays}天</span>
+                                                                                        <span className="text-[10px] font-mono text-muted-foreground/60 font-medium">{createDateOnly} | {listedDays}天</span>
                                                                                     </div>
                                                                                 </div>
 
@@ -828,16 +875,16 @@ const App = () => {
                                                                                     <div className="flex flex-col px-1 w-20 min-h-[60px]">
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">销量</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
-                                                                                             <span className="text-sm font-black text-emerald-500 font-mono leading-none">
-                                                                                                 +{(() => {
-                                                                                                     const s = raw.sale_qty || 0;
-                                                                                                     if (s > 500) return 4;
-                                                                                                     if (s >= 200) return 3;
-                                                                                                     if (s >= 100) return 2;
-                                                                                                     if (s >= 60) return 1;
-                                                                                                     return 0;
-                                                                                                 })().toFixed(1)}
-                                                                                             </span>
+                                                                                            <span className="text-sm font-black text-emerald-500 font-mono leading-none">
+                                                                                                +{(() => {
+                                                                                                    const s = raw.sale_qty || 0;
+                                                                                                    if (s > 500) return 4;
+                                                                                                    if (s >= 200) return 3;
+                                                                                                    if (s >= 100) return 2;
+                                                                                                    if (s >= 60) return 1;
+                                                                                                    return 0;
+                                                                                                })().toFixed(1)}
+                                                                                            </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1">{raw.sale_qty || 0}</span>
                                                                                         </div>
                                                                                     </div>
@@ -845,17 +892,17 @@ const App = () => {
                                                                                     <div className="flex flex-col px-1 w-20 min-h-[60px]">
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">评论</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
-                                                                                             <span className="text-sm font-black text-amber-500 font-mono leading-none">
-                                                                                                 +{(() => {
-                                                                                                     const r = raw.review_qty || 0;
-                                                                                                     if (r > 400) return 3;
-                                                                                                     if (r >= 200) return 2;
-                                                                                                     if (r >= 100) return 1.5;
-                                                                                                     if (r >= 50) return 1;
-                                                                                                     if (r >= 15) return 0.5;
-                                                                                                     return 0;
-                                                                                                 })().toFixed(1)}
-                                                                                             </span>
+                                                                                            <span className="text-sm font-black text-amber-500 font-mono leading-none">
+                                                                                                +{(() => {
+                                                                                                    const r = raw.review_qty || 0;
+                                                                                                    if (r > 400) return 3;
+                                                                                                    if (r >= 200) return 2;
+                                                                                                    if (r >= 100) return 1.5;
+                                                                                                    if (r >= 50) return 1;
+                                                                                                    if (r >= 15) return 0.5;
+                                                                                                    return 0;
+                                                                                                })().toFixed(1)}
+                                                                                            </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1">{raw.review_qty || 0}</span>
                                                                                         </div>
                                                                                     </div>
@@ -863,32 +910,59 @@ const App = () => {
                                                                                     <div className="flex flex-col px-1 w-24 min-h-[60px]">
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">销售额</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
-                                                                                             <span className="text-sm font-black text-blue-500 font-mono leading-none">
-                                                                                                 +{(() => {
-                                                                                                     const p = raw.sale_price || 0;
-                                                                                                     if (p > 8000) return 0;
-                                                                                                     if (p >= 3000) return 1;
-                                                                                                     if (p >= 1500) return 0.5;
-                                                                                                     return 0;
-                                                                                                 })().toFixed(1)}
-                                                                                             </span>
+                                                                                            <span className="text-sm font-black text-blue-500 font-mono leading-none">
+                                                                                                +{(() => {
+                                                                                                    const p = raw.sale_price || 0;
+                                                                                                    if (p > 8000) return 0;
+                                                                                                    if (p >= 3000) return 1;
+                                                                                                    if (p >= 1500) return 0.5;
+                                                                                                    return 0;
+                                                                                                })().toFixed(1)}
+                                                                                            </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1 truncate">{raw.sale_amount?.toLocaleString() || 0}</span>
                                                                                         </div>
                                                                                     </div>
 
-                                                                                    <div className="flex flex-col px-1 w-20 min-h-[60px]">
-                                                                                        <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">单品均销</span>
+                                                                                    <div className="flex flex-col px-1 w-24 min-h-[60px]">
+                                                                                        <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">天数/评论</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
-                                                                                            <span className="text-sm font-black text-indigo-500 font-mono leading-none">
-                                                                                                 +{(() => {
-                                                                                                     const stats = selectedTask?.category_stats || {};
-                                                                                                     const avg = stats.sale_product_qty ? (stats.sale_qty / stats.sale_product_qty) : 0;
-                                                                                                     if (avg > 80) return 4.0;
-                                                                                                     if (avg >= 50) return 3.0;
-                                                                                                     if (avg >= 30) return 2.0;
-                                                                                                     if (avg >= 15) return 1.0;
-                                                                                                     return 0.0;
-                                                                                                 })().toFixed(1)}
+                                                                                            <span className="text-sm font-black text-rose-500 font-mono leading-none">
+                                                                                                +{(() => {
+                                                                                                    const r = raw.review_qty || 0;
+                                                                                                    const ratio = r > 0 && listedDays !== '--' ? (listedDays / r) : 999;
+                                                                                                    if (ratio <= 0.5) return 10.0;
+                                                                                                    if (ratio <= 1.0) return 5.0;
+                                                                                                    if (ratio <= 2.0) return 3.0;
+                                                                                                    if (ratio <= 2.5) return 1.0;
+                                                                                                    return 0.0;
+                                                                                                })().toFixed(1)}
+                                                                                            </span>
+                                                                                            <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1 leading-tight">
+                                                                                                {listedDays} / {raw.review_qty || 0}
+                                                                                                <br />
+                                                                                                比值: {ratingRatio}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    <div className="flex flex-col px-1 w-24 min-h-[60px]">
+                                                                                        <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">销品比</span>
+                                                                                        <div className="flex-1 flex flex-col justify-center">
+                                                                                            <span className="text-sm font-black text-violet-500 dark:text-violet-400 font-mono leading-none">
+                                                                                                +{(() => {
+                                                                                                    const stats = selectedTask?.category_stats;
+                                                                                                    const ratio = stats?.sale_qty / stats?.sale_product_qty || 0;
+                                                                                                    if (ratio > 80) return 4.0;
+                                                                                                    if (ratio >= 50) return 3.0;
+                                                                                                    if (ratio >= 30) return 2.0;
+                                                                                                    if (ratio >= 15) return 1.0;
+                                                                                                    return 0.0;
+                                                                                                })().toFixed(1)}
+                                                                                            </span>
+                                                                                            <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1 leading-tight">
+                                                                                                {selectedTask?.category_stats?.sale_qty || 0} / {selectedTask?.category_stats?.sale_product_qty || 0}
+                                                                                                <br />
+                                                                                                比值: {(selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0).toFixed(2)}
                                                                                             </span>
                                                                                         </div>
                                                                                     </div>
@@ -897,10 +971,36 @@ const App = () => {
                                                                                     <div className="flex flex-col items-center pl-4 ml-2 border-l border-border/30 h-full min-w-[70px] min-h-[60px]">
                                                                                         <span className="text-[9px] text-muted-foreground font-bold uppercase mb-1 shrink-0">总得分</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
-                                                                                            <span className="text-2xl font-black text-primary font-mono leading-none">{tp.total_score?.toFixed(1) || '0.0'}</span>
+                                                                                            <span className="text-2xl font-black text-primary font-mono leading-none">
+                                                                                                {(() => {
+                                                                                                    // 销量得分
+                                                                                                    const s_sales = (s) => (s > 500 ? 4 : s >= 200 ? 3 : s >= 100 ? 2 : s >= 60 ? 1 : 0);
+                                                                                                    // 评论得分
+                                                                                                    const s_reviews = (r) => (r > 400 ? 3 : r >= 200 ? 2 : r >= 100 ? 1.5 : r >= 50 ? 1 : r >= 15 ? 0.5 : 0);
+                                                                                                    // 价格得分
+                                                                                                    const s_price = (p) => (p > 8000 ? 0 : p >= 3000 ? 1 : p >= 1500 ? 0.5 : 0);
+                                                                                                    // 天数评论比
+                                                                                                    const s_ratio = (r, d) => {
+                                                                                                        const ratio = r > 0 && d !== '--' ? d / r : 999;
+                                                                                                        return ratio <= 0.5 ? 10 : ratio <= 1 ? 5 : ratio <= 2 ? 3 : ratio <= 2.5 ? 1 : 0;
+                                                                                                    };
+                                                                                                    // 销品比得分 (全局)
+                                                                                                    const s_cat = (sq, spq) => {
+                                                                                                        const ratio = sq / spq || 0;
+                                                                                                        return ratio > 80 ? 4 : ratio >= 50 ? 3 : ratio >= 30 ? 2 : ratio >= 15 ? 1 : 0;
+                                                                                                    };
+
+                                                                                                    const score = s_sales(raw.sale_qty || 0) +
+                                                                                                        s_reviews(raw.review_qty || 0) +
+                                                                                                        s_price(raw.sale_price || 0) +
+                                                                                                        s_ratio(raw.review_qty || 0, listedDays) +
+                                                                                                        s_cat(selectedTask?.category_stats?.sale_qty || 0, selectedTask?.category_stats?.sale_product_qty || 1);
+
+                                                                                                    return score.toFixed(1);
+                                                                                                })()}
+                                                                                            </span>
                                                                                         </div>
                                                                                     </div>
-
                                                                                 </div>
                                                                             </div>
                                                                         );
@@ -911,52 +1011,60 @@ const App = () => {
                                                             {/* --- 右侧栏：类目聚合数据 与 趋势图 (占 1 份宽度) --- */}
                                                             <div className="lg:col-span-1 space-y-6 sticky top-0">
                                                                 {/* 1. 类目综合数据区 */}
-                                                                <div className="bg-card border border-border rounded-xl shadow-sm p-6 flex flex-col group hover:border-primary/30 transition-all">
-                                                                    <h3 className="text-lg font-black text-foreground mb-4">该类目的指标数据</h3>
-                                                                    <div className="space-y-3">
-                                                                        <div className="flex justify-between items-center border-b border-border/20 pb-2">
-                                                                            <span className="text-xs text-muted-foreground font-bold">类目名称</span>
-                                                                            <span className="text-sm font-black truncate max-w-[150px]" title={selectedTask?.category || '--'}>{selectedTask?.category || '--'}</span>
+                                                                <div className="bg-card border border-border rounded-2xl p-6 shadow-xl flex flex-col gap-6">
+                                                                    <h3 className="text-xl font-black text-foreground px-1">该类目的指标数据</h3>
+
+                                                                    {/* 1. 采集覆盖区间 */}
+                                                                    <div className="bg-muted/40 rounded-xl px-4 py-3 flex justify-between items-center border border-border">
+                                                                        <span className="text-[12px] font-bold text-muted-foreground uppercase tracking-tight">采集覆盖区间</span>
+                                                                        <span className="text-sm font-mono font-bold text-primary">
+                                                                            {(() => {
+                                                                                const stats = selectedTask?.category_stats;
+                                                                                if (stats?.startDate && stats?.endDate) {
+                                                                                    const fmt = (s) => `${s.substring(0, 4)}.${s.substring(4, 6)}.${s.substring(6, 8)}`;
+                                                                                    return `${fmt(stats.startDate)}-${fmt(stats.endDate)}`;
+                                                                                }
+                                                                                return '--';
+                                                                            })()}
+                                                                        </span>
+                                                                    </div>
+
+                                                                    {/* 2. 四大核心指标 Grid */}
+                                                                    <div className="grid grid-cols-4 gap-3">
+                                                                        {[
+                                                                            { label: '销量数', val: selectedTask?.category_stats?.sale_qty?.toLocaleString() || '0', color: 'text-orange-500' },
+                                                                            { label: '商品数', val: selectedTask?.category_stats?.sale_product_qty?.toLocaleString() || '0', color: 'text-orange-500' },
+                                                                            { label: '卖家数', val: selectedTask?.category_stats?.sale_merchant_qty?.toLocaleString() || (selectedTask?.category_stats?.merchant_count || '0'), color: 'text-orange-500' },
+                                                                            { label: '品牌数', val: selectedTask?.category_stats?.brand_qty?.toLocaleString() || '0', color: 'text-orange-500' }
+                                                                        ].map((item, id) => (
+                                                                            <div key={id} className="bg-muted/40 rounded-xl p-3 border border-border flex flex-col gap-2">
+                                                                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">{item.label}</span>
+                                                                                <span className={`text-xl font-black ${item.color} font-mono leading-none`}>{item.val}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+
+                                                                    {/* 3. 销售收入与 CR3 */}
+                                                                    <div className="grid grid-cols-3 gap-4">
+                                                                        <div className="col-span-2 flex flex-col gap-3">
+                                                                            <div className="bg-muted/40 rounded-xl px-4 py-3 border border-border flex justify-between items-center">
+                                                                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">前3名销售收入</span>
+                                                                                <span className="text-lg font-black text-sky-500 font-mono">
+                                                                                    {selectedTask?.category_stats?.top3_revenue?.toLocaleString() || '0'}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="bg-muted/40 rounded-xl px-4 py-3 border border-border flex justify-between items-center">
+                                                                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">总销售收入金额</span>
+                                                                                <span className="text-lg font-black text-sky-500 font-mono">
+                                                                                    {(selectedTask?.category_stats?.sale_amount || 0).toLocaleString()}
+                                                                                </span>
+                                                                            </div>
                                                                         </div>
-                                                                        <div className="flex justify-between items-center border-b border-border/20 pb-2">
-                                                                            <span className="text-xs text-muted-foreground font-bold">时间范围</span>
-                                                                            <span className="text-xs font-mono font-bold text-primary">
-                                                                                {(() => {
-                                                                                    const stats = selectedTask?.category_stats;
-                                                                                    if (stats?.startDate && stats?.endDate) {
-                                                                                        const fmt = (s) => `${s.substring(0,4)}.${s.substring(4,6)}.${s.substring(6,8)}`;
-                                                                                        return `${fmt(stats.startDate)} - ${fmt(stats.endDate)}`;
-                                                                                    }
-                                                                                    const end = new Date(selectedTask?.created_at || Date.now());
-                                                                                    const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-                                                                                    const f = (d) => d.toISOString().split('T')[0].replace(/-/g, '.');
-                                                                                    return `${f(start)} - ${f(end)}`;
-                                                                                })()}
+                                                                        <div className="col-span-1 bg-muted/40 rounded-xl p-4 border border-border flex flex-col justify-between">
+                                                                            <span className="text-[10px] font-black text-foreground uppercase tracking-tighter">CR3 集中度</span>
+                                                                            <span className="text-2xl font-black text-sky-500 font-mono leading-none mb-1">
+                                                                                {selectedTask?.category_stats?.cr3 || '0.0%'}
                                                                             </span>
-                                                                        </div>
-                                                                        <div className="flex justify-between items-center border-b border-border/20 pb-2">
-                                                                            <span className="text-xs text-muted-foreground font-bold">销量数</span>
-                                                                            <span className="text-sm font-black text-primary">{selectedTask?.category_stats?.sale_qty?.toLocaleString() || '--'}</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between items-center border-b border-border/20 pb-2">
-                                                                            <span className="text-xs text-muted-foreground font-bold">商品数</span>
-                                                                            <span className="text-sm font-black text-emerald-500">{selectedTask?.category_stats?.sale_product_qty || '--'}</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between items-center border-b border-border/20 pb-2">
-                                                                            <span className="text-xs text-muted-foreground font-bold">卖家数</span>
-                                                                            <span className="text-sm font-black">{selectedTask?.category_stats?.sale_seller_qty || '--'}</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between items-center border-b border-border/20 pb-2">
-                                                                            <span className="text-xs text-muted-foreground font-bold">销售收入</span>
-                                                                            <span className="text-sm font-black text-blue-500">{(selectedTask?.category_stats?.sale_amount || 0).toLocaleString()} ₸</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between items-center border-b border-border/20 pb-2">
-                                                                            <span className="text-xs text-muted-foreground font-bold">销品比</span>
-                                                                            <span className="text-sm font-black text-indigo-500">{(selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0).toFixed(2)}</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between items-center pt-1">
-                                                                            <span className="text-xs text-muted-foreground font-bold">CR3 (头部集中度)</span>
-                                                                            <span className="text-sm font-black text-rose-500">{selectedTask?.category_stats?.cr3 || '28.4%'}</span>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -964,7 +1072,6 @@ const App = () => {
                                                                 {/* 2. 6个月销量趋势图区 */}
                                                                 <div className="bg-card border border-border rounded-xl shadow-sm p-6 flex flex-col group hover:border-primary/30 transition-all">
                                                                     <h3 className="text-lg font-black text-foreground mb-1">销量趋势 (近6个月)</h3>
-                                                                    <p className="text-[10px] text-muted-foreground font-medium mb-6">该细分类目下近6个月的销量曲线图，用直方图和曲线显示</p>
 
                                                                     <div className="relative h-32 w-full flex items-end justify-between px-2 pt-4">
                                                                         {(!selectedTask?.trend_data || selectedTask.trend_data.length === 0) ? (
@@ -974,19 +1081,19 @@ const App = () => {
                                                                             </div>
                                                                         ) : (
                                                                             <>
-                                                                                {selectedTask.trend_data.slice(-6).map((t, i) => {
-                                                                                    const maxSale = Math.max(...selectedTask.trend_data.slice(-6).map(d => d.sale_qty || 0), 1);
+                                                                                {selectedTask.trend_data.slice(-6).map((t, i, arr) => {
+                                                                                    const maxSale = Math.max(...arr.map(d => d.sale_qty || 0), 1);
                                                                                     const heightPercent = maxSale > 0 ? ((t.sale_qty || 0) / maxSale * 100) : 0;
                                                                                     const monthLabel = t.event_date ? new Date(t.event_date).getMonth() + 1 : (i + 1);
 
                                                                                     return (
-                                                                                        <div key={i} className="relative w-10 flex flex-col justify-end h-full gap-2 group/bar cursor-pointer">
+                                                                                        <div key={i} className="relative flex-1 flex flex-col justify-end h-full gap-2 group/bar cursor-pointer">
                                                                                             <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-mono font-black opacity-0 group-hover/bar:opacity-100 transition-opacity bg-foreground text-background px-1.5 py-0.5 rounded z-10 whitespace-nowrap">
                                                                                                 {t.sale_qty >= 1000 ? (t.sale_qty / 1000).toFixed(1) + 'k' : (t.sale_qty || 0)}
                                                                                             </div>
                                                                                             {/* 直方图柱子 */}
                                                                                             <div
-                                                                                                className="w-full bg-primary/10 rounded-t-sm transition-all group-hover/bar:bg-primary/30"
+                                                                                                className="w-6 mx-auto bg-primary/10 rounded-t-sm transition-all group-hover/bar:bg-primary/30"
                                                                                                 style={{ height: `${heightPercent}%` }}
                                                                                             ></div>
                                                                                             {/* X轴标签 */}
@@ -996,7 +1103,7 @@ const App = () => {
                                                                                 })}
 
                                                                                 {/* 折线图 Overlay SVG */}
-                                                                                <svg className="absolute inset-0 h-full w-full pointer-events-none pb-[20px] pt-4 px-2" preserveAspectRatio="none">
+                                                                                <svg className="absolute inset-0 h-full w-full pointer-events-none pt-4 px-2" viewBox="0 0 100 100" preserveAspectRatio="none">
                                                                                     <polyline
                                                                                         fill="none"
                                                                                         stroke="currentColor"
@@ -1006,7 +1113,7 @@ const App = () => {
                                                                                             const maxSale = Math.max(...arr.map(d => d.sale_qty || 0), 1);
                                                                                             // 将高度映射到 0-100 (反转，SVG y 轴向下)
                                                                                             const h = 100 - (Math.min(100, (t.sale_qty || 0) / maxSale * 100));
-                                                                                            const x = (i / Math.max(1, arr.length - 1)) * 100;
+                                                                                            const x = ((i + 0.5) / arr.length) * 100;
                                                                                             return `${x},${h}`;
                                                                                         }).join(' ')}
                                                                                         vectorEffect="non-scaling-stroke"
@@ -1017,7 +1124,6 @@ const App = () => {
                                                                     </div>
                                                                     <div className="h-6"></div> {/* padding-bottom buffer */}
                                                                 </div>
-
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1078,7 +1184,7 @@ const App = () => {
                                                                                 </td>
                                                                                 <td className="px-6 py-4 text-xs font-normal text-muted-foreground uppercase">{raw.restrict_type || '无'}</td>
                                                                             </tr>
-                                                                        )
+                                                                        );
                                                                     })}
                                                                 </tbody>
                                                             </table>
@@ -1096,24 +1202,10 @@ const App = () => {
                         {/* --- 视图：算法配置 --- */}
                         {activeTab === 'algo' && (
                             <div className={`${PDL.spacing.section} flex-1 overflow-y-auto custom-scrollbar pr-2 pb-10`}>
-                                <div className={`bg-card ${PDL.radius.card} border border-border overflow-hidden shadow-xl`}>
-                                    <div className="bg-muted/30 px-8 py-6 border-b border-border flex justify-between items-center">
-                                        <div>
-                                            <h3 className="text-xl font-black text-foreground flex items-center gap-3">
-                                                <div className="w-1.5 h-6 bg-primary rounded-full"></div>
-                                                核心选品算法参数矩阵 (ALGO MATRIX)
-                                            </h3>
-                                            <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mt-1">基于图 1 评分规范的参数化配置系统</p>
-                                        </div>
-                                        <div className="flex gap-3">
-                                            <button className="px-5 py-2 text-[10px] font-black uppercase tracking-widest bg-muted border border-border hover:bg-muted/80 rounded-md transition-all">重置默认</button>
-                                            <button className="px-6 py-2 text-[10px] font-black uppercase tracking-widest bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90 rounded-md transition-all">保存配置指令</button>
-                                        </div>
-                                    </div>
-
-                                    <div className="overflow-x-auto">
+                                <div className="space-y-6">
+                                    <div className={`bg-card ${PDL.radius.card} border border-border overflow-hidden shadow-xl`}>
                                         <table className="w-full text-left border-collapse">
-                                            <thead className="bg-[#0f1118] text-[10px] font-black uppercase tracking-widest text-muted-foreground border-b border-border/50">
+                                            <thead className="bg-muted/30 text-[10px] font-black uppercase tracking-widest text-muted-foreground border-b border-border/50">
                                                 <tr>
                                                     <th className="px-8 py-5">序号</th>
                                                     <th className="px-6 py-5">指标类别</th>
@@ -1124,12 +1216,12 @@ const App = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-border/10">
-                                                {[
-                                                    { id: 1, type: "市场需求", name: "月销量", logic: "读取商品近30天销量", ranges: ["<60", "60-100", "100-200", "200-500", ">500"], scores: [0, 1, 2, 3, 4] },
-                                                    { id: 2, type: "用户反馈", name: "评论数量", logic: "读取评论总数", ranges: ["<15", "15-50", "50-100", "100-200", "200-400", ">400"], scores: [0, 0.5, 1, 1.5, 2, 3] },
-                                                    { id: 3, type: "价格结构", name: "商品价格", logic: "读取当前SKU价格(₸)", ranges: ["<1500", "1500-3000", "3000-8000", ">8000"], scores: [0, 0.5, 1, 0] },
-                                                    { id: 4, type: "类目容量", name: "单品均销", logic: "类目总销量 ÷ 商品数", ranges: ["≤15", "15-30", "30-50", "50-80", ">80"], scores: [0, 1, 2, 3, 4] },
-                                                    { id: 5, type: "成长潜力", name: "天数/评论比", logic: "上架天数 ÷ 评论数", ranges: [">2.5", "2-2.5", "1-2", "0.5-1", "≤0.5"], scores: [0, 1, 3, 5, 10] },
+                                                {algoConfig && [
+                                                    { id: 1, key: "monthly_sales", type: "市场需求", name: "月销量", logic: "读取商品近30天销量", ranges: [">1000", "601-1000", "401-600", "201-400", "101-200", "60-100", "<60"] },
+                                                    { id: 2, key: "reviews", type: "用户反馈", name: "评论数量", logic: "读取评论总数", ranges: [">400", "200-400", "100-200", "50-100", "15-50", "<15"] },
+                                                    { id: 3, key: "price", type: "价格结构", name: "商品价格", logic: "读取当前SKU价格(₸)", ranges: [">8000", "3000-8000", "1500-3000", "<1500"] },
+                                                    { id: 4, key: "avg_sales", type: "类目容量", name: "单品均销", logic: "类目总销量 ÷ 商品数", ranges: [">80", "50-80", "30-50", "15-30", "≤15"] },
+                                                    { id: 5, key: "days_per_review", type: "成长潜力", name: "天数/评论比", logic: "上架天数 ÷ 评论数", ranges: ["≤0.5", "0.5-1", "1-2", "2-2.5", ">2.5"] },
                                                 ].map((row) => (
                                                     <tr key={row.id} className="hover:bg-muted/5 transition-colors group">
                                                         <td className="px-8 py-6 font-mono text-xs text-muted-foreground">{row.id}</td>
@@ -1139,18 +1231,19 @@ const App = () => {
                                                         <td className="px-6 py-6">
                                                             <div className="flex flex-col gap-1.5">
                                                                 {row.ranges.map((r, idx) => (
-                                                                    <div key={idx} className="text-xs font-mono text-foreground/80">{r}</div>
+                                                                    <div key={idx} className="text-xs font-mono text-foreground/80 h-6 flex items-center">{r}</div>
                                                                 ))}
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-6">
                                                             <div className="flex flex-col gap-1.5 items-center">
-                                                                {row.scores.map((s, idx) => (
-                                                                    <input 
+                                                                {algoConfig[row.key].scores.map((s, idx) => (
+                                                                    <input
                                                                         key={idx}
-                                                                        type="text" 
-                                                                        defaultValue={s} 
-                                                                        className="w-12 h-6 bg-muted/40 border border-border/50 rounded text-center text-xs font-black text-primary hover:border-primary/50 focus:border-primary focus:outline-none transition-all"
+                                                                        type="text"
+                                                                        value={s}
+                                                                        onChange={(e) => updateAlgoConfigValue(row.key, idx, e.target.value)}
+                                                                        className="w-14 h-6 bg-muted/40 border border-border/50 rounded text-center text-xs font-black text-primary hover:border-primary/50 focus:border-primary focus:outline-none transition-all"
                                                                     />
                                                                 ))}
                                                             </div>
@@ -1210,8 +1303,6 @@ const App = () => {
                                 </div>
                             </div>
                         )}
-
-                        {/* Footer - Removed for fixed layout */}
                     </div>
                 </main>
                 {viewLogId && <LogViewer taskId={viewLogId} onClose={() => setViewLogId(null)} />}
