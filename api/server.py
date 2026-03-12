@@ -506,17 +506,41 @@ def get_kaspi_global_tree():
 @app.post('/api/kaspi/tasks/batch')
 def create_kaspi_tasks_batch(item_codes: list[str], background_tasks: BackgroundTasks):
     from core.final_pipeline import supabase as sb
-    res = sb.table('global_category_dict').select('*').in_('algatop_id', item_codes).execute()
-    if len(res.data) < len(item_codes):
-        missing = set(item_codes) - set(r['algatop_id'] for r in res.data)
-        res_ext = sb.table('global_category_dict').select('*').in_('kaspi_id', list(missing)).execute()
-        res.data.extend(res_ext.data)
+    # 哥，先把这些 ID 的中文名全副武装好，优先去 master 主表拿最正宗的翻译
+    res_master = sb.table('algatop_categories_master').select('algatop_id, name_cn, name_ru').in_('algatop_id', item_codes).execute()
+    
     code_map = {}
-    for row in res.data:
-        name = row['name_cn'] if row.get('name_cn') else (row.get('name_ru') or row['name_en'])
-        if row.get('algatop_id'): code_map[row['algatop_id']] = name
-        code_map[row['kaspi_id']] = name
-    payload = [{'category_id': code, 'category': code_map.get(code, code), 'status': 'pending', 'progress': 0} for code in item_codes]
+    # 先用 master 表的数据填充
+    for row in res_master.data:
+        algatop_id = str(row['algatop_id'])
+        # 只要有中文名就用中文名，没有才用俄文
+        cn_name = row.get('name_cn')
+        # 如果 name_cn 还是俄文，或者是空，就先拿 name_ru 兜底
+        code_map[algatop_id] = cn_name if cn_name and not any(u'\u0400' <= c <= u'\u04FF' for c in cn_name) else (row.get('name_ru') or algatop_id)
+
+    # 如果 master 里没找全，再去 global_category_dict 碰碰运气
+    missing_codes = [c for c in item_codes if c not in code_map]
+    if missing_codes:
+        res_dict = sb.table('global_category_dict').select('*').in_('algatop_id', missing_codes).execute()
+        for row in res_dict.data:
+            aid = str(row['algatop_id'])
+            kid = str(row['kaspi_id'])
+            name = row.get('name_cn')
+            if not name or any(u'\u0400' <= c <= u'\u04FF' for c in name):
+                name = row.get('name_ru') or row.get('name_en') or aid
+            code_map[aid] = name
+            code_map[kid] = name
+
+    payload = []
+    for code in item_codes:
+        display_name = code_map.get(str(code), str(code))
+        payload.append({
+            'category_id': str(code),
+            'category': display_name,
+            'status': 'pending',
+            'progress': 0
+        })
+        
     try:
         inserted = sb.table('analysis_tasks').insert(payload).execute()
         for task in inserted.data:
