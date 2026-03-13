@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: prosourcing_db
+    environment:
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-prosourcing123}
+      POSTGRES_DB: ${PG_DB:-prosourcing}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: always
+
+  backend:
+    image: prosourcing-backend:ultimate_fix
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: prosourcing_backend
+    environment:
+      - DATABASE_URL=postgresql://${PG_USER:-postgres}:${PG_PASSWORD:-prosourcing123}@db:5432/${PG_DB:-prosourcing}
+      - CHROME_REMOTE_DEBUG_ADDR=host.docker.internal:9222
+      - ENV_MOD=production
+      - ALGATOP_USER=${ALGATOP_USER}
+      - ALGATOP_PASS=${ALGATOP_PASS}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./output:/app/output
+      - ./tmp:/app/tmp
+    depends_on:
+      - db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: always
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: prosourcing_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always
+
+volumes:
+  pgdata:
