@@ -41,12 +41,13 @@ services:
     restart: always
 
   frontend:
+    image: prosourcing-frontend:latest
     build:
       context: .
       dockerfile: Dockerfile.frontend
     container_name: prosourcing_frontend
     ports:
-      - "80:80"
+      - "${FRONTEND_PORT:-80}:80"
     depends_on:
       - backend
     restart: always

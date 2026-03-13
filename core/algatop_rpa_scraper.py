@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import requests
 import random
 import time
 import math
@@ -16,7 +17,12 @@ load_dotenv()
 
 class AlgatopRPAScraper:
     def __init__(self, port=9222):
-        self.port = port
+        # 生产环境从环境变量读取远程浏览器地址 (例如 host.docker.internal:9222)
+        # 开发环境默认使用 127.0.0.1:9222
+        self.remote_addr = os.getenv("CHROME_REMOTE_DEBUG_ADDR", f"127.0.0.1:{port}")
+        if not self.remote_addr.startswith("http"):
+            self.remote_addr = f"http://{self.remote_addr}"
+        
         self.browser = None
         self.context = None
         self.page = None
@@ -39,12 +45,36 @@ class AlgatopRPAScraper:
         ]
 
     async def connect(self):
-        """连接到已经打开的 9222 端口 Chrome，并注入 Stealth"""
-        print(f"[CONNECT] 正在尝试连接到本地 Chrome (端口: {self.port})...")
+        """连接到指定地址的 Chrome（支持宿主机接管），并注入 Stealth"""
+        print(f"[CONNECT] 正在尝试连接到 Chrome (地址: {self.remote_addr})...")
         self.pw = await async_playwright().start()
+        
+        # 针对容器环境的“直连增强模式”
+        # 有时 Playwright 直接 connect_over_cdp 会报错 500，我们手动解析 WS 地址并替换 Host
+        ws_url = self.remote_addr
+        if "host.docker.internal" in self.remote_addr:
+            try:
+                print(f"[GOD MODE] 正在尝试通过 WS 直接重定向连接...")
+                version_url = f"{self.remote_addr}/json/version"
+                # 哥，Chrome 调试器有时候很挑剔，得伪装成 127.0.0.1 访问
+                headers = {"Host": "127.0.0.1:9222"}
+                resp = requests.get(version_url, headers=headers, timeout=5)
+                print(f"[GOD MODE] HTTP Status: {resp.status_code}")
+                if resp.status_code == 200:
+                    info = resp.json()
+                    raw_ws = info.get("webSocketDebuggerUrl")
+                    if raw_ws:
+                        # 把 127.0.0.1 替换回 host.docker.internal
+                        ws_url = raw_ws.replace("127.0.0.1", "host.docker.internal")
+                        print(f"[GOD MODE] 成功获取 WebSocket 地址: {ws_url}")
+                else:
+                    print(f"[GOD MODE] ⚠️ 收到异常响应! Server: {resp.headers.get('Server', 'Unknown')}, Content: {resp.text[:200]}")
+            except Exception as e:
+                print(f"[WARNING] 尝试手动获取 WS 地址失败，将回退到默认连接模式: {e}")
+
         try:
-            # 明确使用 127.0.0.1 避免 IPv6 导致的 localhost 链接问题
-            self.browser = await self.pw.chromium.connect_over_cdp(f"http://127.0.0.1:{self.port}")
+            # 如果 ws_url 包含 ws://，connect_over_cdp 会直接使用该地址，避开探测
+            self.browser = await self.pw.chromium.connect_over_cdp(ws_url)
             self.context = self.browser.contexts[0]
             # 创建一个新页面，而不是复用可能不稳定的第一个页面
             self.page = await self.context.new_page()
@@ -264,25 +294,46 @@ class AlgatopRPAScraper:
                 print(f"[SUCCESS] 核心数据已全部捕获 (耗时: {45 - timeout}s)")
                 return True
             
-            # 如果指标拿到了但趋势没拿到，尝试模拟滚动一下，触发图表加载
-            if self.captured_data["niche_stats"] and not self.captured_data["trend"] and timeout < 35:
-                print("[RETRY] 指标已就位，但趋势图消失。尝试模拟滚动以触发懒加载...")
-                await self.page.evaluate("window.scrollBy(0, 500)")
-                await asyncio.sleep(2)
+            # 如果指标拿到了但趋势没拿到，尝试触发加载
+            if self.captured_data["niche_stats"] and not self.captured_data["trend"]:
+                if timeout == 40 or timeout == 30:
+                    print(f"[RETRY] 正在尝试显式点击 'Тренды' (趋势) 标签以触发加载... (剩余时间: {timeout}s)")
+                    try:
+                        # 尝试通过文本内容定位“Тренды”标签并点击
+                        # 通常是在详情页顶部的 Tab 切换区域
+                        await self.page.click("text=Тренды", timeout=5000)
+                        await asyncio.sleep(2)
+                    except Exception as e:
+                        print(f"[RETRY WARN] 点击趋势标签失败: {e}")
+                elif timeout < 35 and timeout % 5 == 0:
+                    print("[RETRY] 尝试模拟滚动以触发全量数据加载...")
+                    await self.page.evaluate("window.scrollBy(0, 500)")
+                    await asyncio.sleep(1)
                 
             await asyncio.sleep(1)
             timeout -= 1
         
         if not self.captured_data["trend"]:
-            print("[WARNING] 趋势数据捕获最终由于超时失败。尝试最后一次强力滚动...")
-            # 暴力向下滚动 10 次，每次 300 像素，确保触发懒加载
+            print("[WARNING] 趋势数据捕获最终由于超时失败。尝试最后一次强力滚动和多重交互...")
+            try:
+                # 尝试点击所有可能的趋势触发点
+                selectors = ["text=Тренды", ".ant-tabs-tab-btn:has-text('Тренды')", "div:text('Тренды')"]
+                for selector in selectors:
+                    try:
+                        await self.page.click(selector, timeout=2000)
+                        await asyncio.sleep(1)
+                    except: pass
+            except: pass
+
+            # 暴力向下滚动
             for _ in range(5):
-                await self.page.evaluate("window.scrollBy(0, 500)")
+                await self.page.evaluate("window.scrollBy(0, 800)")
                 await asyncio.sleep(1.5)
                 if self.captured_data["trend"]:
                     print("[SUCCESS] 最后时刻补救成功，捕获到趋势数据！")
                     return True
             
+        return self.captured_data["niche_stats"] is not None
         return self.captured_data["niche_stats"] is not None
 
     async def fetch_extra_pages(self, max_pages=None):
@@ -354,9 +405,11 @@ class AlgatopRPAScraper:
     async def save_results(self, task_id="default"):
         """保存采集结果"""
         filename = f"rpa_output_{task_id}.json"
-        path = os.path.join("d:/item/ProSourcing/output", filename)
+        # 哥，这里统一用 ./output 保证容器内外都能找到
+        output_dir = "./output"
+        path = os.path.join(output_dir, filename)
         # 确保目录存在
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
         
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.captured_data, f, ensure_ascii=False, indent=2)
