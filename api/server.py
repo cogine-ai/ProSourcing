@@ -157,6 +157,28 @@ def calculate_duration_from_logs(task_id: str):
 @app.get("/api/tasks/{task_id}/data")
 def get_task_data(task_id: str):
     from core.final_pipeline import supabase as sb
+    from core.final_pipeline import ENV_MOD
+    
+    # 哥，如果是生产环境（本地 PG），兼容层做不了 Join，咱得手动拼装
+    if ENV_MOD == "production":
+        metrics_res = sb.table("products_calculated_metrics").select("*").eq("task_id", task_id).execute()
+        raw_res = sb.table("products_raw_data").select("*").eq("task_id", task_id).execute()
+        
+        # 建立 SKU 索引，保证拼装速度起飞
+        raw_map = {p['sku']: p for p in raw_res.data}
+        
+        joined_data = []
+        for m in metrics_res.data:
+            sku = m['sku']
+            # 手动塞进嵌套对象，前端就认这个
+            m['products_raw_data'] = raw_map.get(sku, {})
+            joined_data.append(m)
+            
+        if not joined_data and raw_res.data:
+            return [{"products_raw_data": p, "total_score": 0} for p in raw_res.data]
+        return joined_data
+
+    # 开发环境 (云端 Supabase) 保持原样
     res = sb.table("products_calculated_metrics").select("*, products_raw_data(*)").eq("task_id", task_id).execute()
     if res.data:
         return res.data
@@ -233,6 +255,7 @@ def get_top_categories():
         ratio = (sales / products) if products > 0 else 0
         mapped.append({
             "id": cid, "category_id": cid, "name": display_name, "category_name": display_name,
+            "name_ru": ru_name, "name_cn": cn_name,
             "is_top_level": True, "sales_to_product_ratio": ratio, "monthly_sales": sales,
             "sale_product_qty": products, "revenue": s.get("revenue") or 0,
             "seller_count": s.get("seller_count") or 0, "brand_count": s.get("brand_count") or 0
@@ -347,13 +370,64 @@ def execute_rpa_pipeline(task_id: str, category_id: str, category_name: str):
             return s.connect_ex(('127.0.0.1', port)) == 0
 
     def launch_browser():
-        chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-        if not os.path.exists(chrome_path):
-            chrome_path = r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+        """
+        启动 Chrome RPA 浏览器。
+        哥，这里我加了自动探测逻辑，防止不同电脑路径不一致。
+        """
+        # 1. 优先从环境变量获取
+        chrome_path = os.getenv("CHROME_PATH")
         
+        # 2. 如果没配置，则自动探测常见路径
+        if not chrome_path or not os.path.exists(chrome_path):
+            possible_paths = [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                os.path.join(os.environ.get('LocalAppData', 'C:\\Users\\Default\\AppData\\Local'), r"Google\Chrome\Application\chrome.exe"),
+                os.path.join(os.environ.get('ProgramFiles', 'C:\\Program Files'), r"Google\Chrome\Application\chrome.exe"),
+                os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), r"Google\Chrome\Application\chrome.exe"),
+            ]
+            for p in possible_paths:
+                if os.path.exists(p):
+                    chrome_path = p
+                    break
+        
+        def is_port_in_use(port):
+            # 哥，如果是容器环境，咱得查宿主机的端口，不能查容器自己的
+            target = os.getenv("CHROME_REMOTE_DEBUG_ADDR", "host.docker.internal:9222").split(":")[0] if is_docker else "127.0.0.1"
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(2)
+                return s.connect_ex((target, port)) == 0
+
+        if not chrome_path or not os.path.exists(chrome_path):
+            msg = "❌ 找不到 Chrome 可执行文件！"
+            if is_docker:
+                msg += " (处于容器环境)"
+                # 检查一下宿主机的调试端口开了没
+                if is_port_in_use(9222):
+                    print(f"[SUCCESS] 探测到宿主机 9222 端口已开启，逻辑继续。")
+                    return None
+                else:
+                    msg += " 请在宿主机手动运行 launch_rpa_chrome.py 开启浏览器。"
+                    print(f"[WARNING] {msg} (Path: {chrome_path})")
+                    return None
+            else:
+                env_info = f"is_docker={is_docker}, ENV_MOD={os.getenv('ENV_MOD')}"
+                msg += f" (环境: {env_info}) 请确认安装 Chrome 或配置 CHROME_PATH。"
+                raise FileNotFoundError(msg)
+
+        if is_docker:
+            # 容器环境不建议直接调用 subprocess 启动宿主机程序（除非做了复杂的挂载或 RPC）
+            # 直接引导用户手动启动，避免报奇怪的权限/路径错误
+            print("[DOCKER] 检测到生产/容器环境，跳过自动启动逻辑。请确保宿主机已开启 9222 端口。")
+            return None
+
         port = 9222
-        user_data_dir = r"C:\AlgatopRPA_ChromeData"
-        if not os.path.exists(user_data_dir): os.makedirs(user_data_dir)
+        # 用户数据目录也改为相对路径或可配置路径，避免 C 盘权限问题
+        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        user_data_dir = os.path.join(current_dir, "tmp", "chrome_rpa_profile")
+        if not os.path.exists(user_data_dir): 
+            os.makedirs(user_data_dir, exist_ok=True)
             
         cmd = [
             chrome_path,
@@ -380,15 +454,33 @@ def execute_rpa_pipeline(task_id: str, category_id: str, category_name: str):
         update_db(10, "crawling")
         log_file.write(f"[{datetime.now().isoformat()}] --- Starting RPA Pipeline for category: {category_name} ---\n")
         
-        if not is_port_in_use(9222):
-            log_file.write(f"[{datetime.now().isoformat()}] Detecting Chrome Debug port 9222 is closed. 正在自动启动浏览器...\n")
-            log_file.flush()
-            launch_browser()
-            time.sleep(5)
-            if is_port_in_use(9222):
-                log_file.write(f"[{datetime.now().isoformat()}] Browser started successfully.\n")
+        # 定义内部检测函数（因为要用到 is_docker）
+        def check_port():
+            # 同样需要检测环境
+            is_docker_env = (
+                os.path.exists('/.dockerenv') or 
+                os.path.exists('/proc/1/cgroup') or 
+                os.getenv("ENV_MOD") == "production"
+            )
+            target = os.getenv("CHROME_REMOTE_DEBUG_ADDR", "host.docker.internal:9222").split(":")[0] if is_docker_env else "127.0.0.1"
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(2)
+                return s.connect_ex((target, 9222)) == 0
+
+        if not check_port():
+            log_file.write(f"[{datetime.now().isoformat()}] Detecting Chrome Debug port 9222... Not Found.\n")
+            if is_docker:
+                log_file.write(f"[{datetime.now().isoformat()}] [DOCKER] 请确保宿主机已运行 launch_rpa_chrome.py\n")
             else:
-                log_file.write(f"[{datetime.now().isoformat()}] WARNING: Browser start timeout or failed.\n")
+                log_file.write(f"[{datetime.now().isoformat()}] 正在自动启动浏览器...\n")
+                launch_browser()
+                time.sleep(5)
+            
+            if check_port():
+                log_file.write(f"[{datetime.now().isoformat()}] Browser/Port is now ready.\n")
+            else:
+                log_file.write(f"[{datetime.now().isoformat()}] WARNING: Chrome Debug port 9222 is still closed.\n")
         
         log_file.flush()
 

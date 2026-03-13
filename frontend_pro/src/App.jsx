@@ -135,10 +135,9 @@ const CategoryCard = ({ cat }) => {
     const ratio = cat.sale_product_qty > 0 ? (cat.monthly_sales / cat.sale_product_qty).toFixed(2) : 0;
 
     // 拆分中俄双语：假设格式为 "俄语 (中文)"
-    const safeCategoryName = cat?.category_name || "";
-    const nameParts = safeCategoryName.match(/^(.*)\s\((.*)\)$/);
-    const ruName = nameParts ? nameParts[1] : safeCategoryName;
-    const zhName = nameParts ? nameParts[2] : "";
+    // 哥，咱们现在优先用独立的列，干净利落
+    const ruName = cat?.name_ru || (cat?.category_name?.match(/^(.*)\s\(.*\)$/) || [null, cat?.category_name])[1] || cat?.name || "";
+    const zhName = cat?.name_cn || (cat?.category_name?.match(/\s\((.*)\)$/) || [null, ""])[1] || "";
 
     return (
         <div className={`bg-card border border-border ${PDL.radius.card} rounded-card-force p-8 hover:border-primary/50 transition-all shadow-md flex flex-col justify-between group h-[320px]`}>
@@ -214,6 +213,37 @@ const App = () => {
     const [reportTab, setReportTab] = useState('metrics');
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
     const [algoConfig, setAlgoConfig] = useState(null); // 哥，这是存放算法配置的状态
+
+    // 哥，这是统一的评分逻辑，直接根据 algoConfig 来算，保证前后端和配置页全对齐
+    const getMetricScore = (metricKey, value, secondaryValue = null) => {
+        if (!algoConfig || !algoConfig[metricKey]) return 0;
+        const conf = algoConfig[metricKey];
+        const ranges = conf.ranges;
+        const scores = conf.scores;
+
+        if (metricKey === 'days_per_review') {
+            if (secondaryValue === 0 || secondaryValue === '--') return 0;
+            const ratio = value / secondaryValue;
+            for (let i = 0; i < ranges.length; i++) {
+                if (ratio <= ranges[i]) return scores[i];
+            }
+            return scores[scores.length - 1];
+        }
+
+        if (metricKey === 'price') {
+            if (value > ranges[0]) return scores[0];
+            for (let i = 1; i < ranges.length; i++) {
+                if (value >= ranges[i]) return scores[i];
+            }
+            return scores[scores.length - 1];
+        }
+
+        // 默认逻辑：从大到小比对阈值
+        for (let i = 0; i < ranges.length; i++) {
+            if (value >= ranges[i]) return scores[i];
+        }
+        return scores[scores.length - 1];
+    };
 
     const [expandedNodes, setExpandedNodes] = useState(new Set());
 
@@ -876,14 +906,7 @@ const App = () => {
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">销量</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-sm font-black text-emerald-500 font-mono leading-none">
-                                                                                                +{(() => {
-                                                                                                    const s = raw.sale_qty || 0;
-                                                                                                    if (s > 500) return 4;
-                                                                                                    if (s >= 200) return 3;
-                                                                                                    if (s >= 100) return 2;
-                                                                                                    if (s >= 60) return 1;
-                                                                                                    return 0;
-                                                                                                })().toFixed(1)}
+                                                                                                +{getMetricScore('monthly_sales', raw.sale_qty || 0).toFixed(1)}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1">{raw.sale_qty || 0}</span>
                                                                                         </div>
@@ -893,33 +916,19 @@ const App = () => {
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">评论</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-sm font-black text-amber-500 font-mono leading-none">
-                                                                                                +{(() => {
-                                                                                                    const r = raw.review_qty || 0;
-                                                                                                    if (r > 400) return 3;
-                                                                                                    if (r >= 200) return 2;
-                                                                                                    if (r >= 100) return 1.5;
-                                                                                                    if (r >= 50) return 1;
-                                                                                                    if (r >= 15) return 0.5;
-                                                                                                    return 0;
-                                                                                                })().toFixed(1)}
+                                                                                                +{getMetricScore('reviews', raw.review_qty || 0).toFixed(1)}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1">{raw.review_qty || 0}</span>
                                                                                         </div>
                                                                                     </div>
 
                                                                                     <div className="flex flex-col px-1 w-24 min-h-[60px]">
-                                                                                        <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">销售额</span>
+                                                                                        <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">售价</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-sm font-black text-blue-500 font-mono leading-none">
-                                                                                                +{(() => {
-                                                                                                    const p = raw.sale_price || 0;
-                                                                                                    if (p > 8000) return 0;
-                                                                                                    if (p >= 3000) return 1;
-                                                                                                    if (p >= 1500) return 0.5;
-                                                                                                    return 0;
-                                                                                                })().toFixed(1)}
+                                                                                                +{getMetricScore('price', raw.sale_price || 0).toFixed(1)}
                                                                                             </span>
-                                                                                            <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1 truncate">{raw.sale_amount?.toLocaleString() || 0}</span>
+                                                                                            <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1 truncate">{raw.sale_price?.toLocaleString() || 0} ₸</span>
                                                                                         </div>
                                                                                     </div>
 
@@ -927,15 +936,7 @@ const App = () => {
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">天数/评论</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-sm font-black text-rose-500 font-mono leading-none">
-                                                                                                +{(() => {
-                                                                                                    const r = raw.review_qty || 0;
-                                                                                                    const ratio = r > 0 && listedDays !== '--' ? (listedDays / r) : 999;
-                                                                                                    if (ratio <= 0.5) return 10.0;
-                                                                                                    if (ratio <= 1.0) return 5.0;
-                                                                                                    if (ratio <= 2.0) return 3.0;
-                                                                                                    if (ratio <= 2.5) return 1.0;
-                                                                                                    return 0.0;
-                                                                                                })().toFixed(1)}
+                                                                                                +{getMetricScore('days_per_review', listedDays, raw.review_qty || 0).toFixed(1)}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1 leading-tight">
                                                                                                 {listedDays} / {raw.review_qty || 0}
@@ -949,15 +950,7 @@ const App = () => {
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">销品比</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-sm font-black text-violet-500 dark:text-violet-400 font-mono leading-none">
-                                                                                                +{(() => {
-                                                                                                    const stats = selectedTask?.category_stats;
-                                                                                                    const ratio = stats?.sale_qty / stats?.sale_product_qty || 0;
-                                                                                                    if (ratio > 80) return 4.0;
-                                                                                                    if (ratio >= 50) return 3.0;
-                                                                                                    if (ratio >= 30) return 2.0;
-                                                                                                    if (ratio >= 15) return 1.0;
-                                                                                                    return 0.0;
-                                                                                                })().toFixed(1)}
+                                                                                                +{getMetricScore('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0).toFixed(1)}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1 leading-tight">
                                                                                                 {selectedTask?.category_stats?.sale_qty || 0} / {selectedTask?.category_stats?.sale_product_qty || 0}
@@ -972,32 +965,13 @@ const App = () => {
                                                                                         <span className="text-[9px] text-muted-foreground font-bold uppercase mb-1 shrink-0">总得分</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-2xl font-black text-primary font-mono leading-none">
-                                                                                                {(() => {
-                                                                                                    // 销量得分
-                                                                                                    const s_sales = (s) => (s > 500 ? 4 : s >= 200 ? 3 : s >= 100 ? 2 : s >= 60 ? 1 : 0);
-                                                                                                    // 评论得分
-                                                                                                    const s_reviews = (r) => (r > 400 ? 3 : r >= 200 ? 2 : r >= 100 ? 1.5 : r >= 50 ? 1 : r >= 15 ? 0.5 : 0);
-                                                                                                    // 价格得分
-                                                                                                    const s_price = (p) => (p > 8000 ? 0 : p >= 3000 ? 1 : p >= 1500 ? 0.5 : 0);
-                                                                                                    // 天数评论比
-                                                                                                    const s_ratio = (r, d) => {
-                                                                                                        const ratio = r > 0 && d !== '--' ? d / r : 999;
-                                                                                                        return ratio <= 0.5 ? 10 : ratio <= 1 ? 5 : ratio <= 2 ? 3 : ratio <= 2.5 ? 1 : 0;
-                                                                                                    };
-                                                                                                    // 销品比得分 (全局)
-                                                                                                    const s_cat = (sq, spq) => {
-                                                                                                        const ratio = sq / spq || 0;
-                                                                                                        return ratio > 80 ? 4 : ratio >= 50 ? 3 : ratio >= 30 ? 2 : ratio >= 15 ? 1 : 0;
-                                                                                                    };
-
-                                                                                                    const score = s_sales(raw.sale_qty || 0) +
-                                                                                                        s_reviews(raw.review_qty || 0) +
-                                                                                                        s_price(raw.sale_price || 0) +
-                                                                                                        s_ratio(raw.review_qty || 0, listedDays) +
-                                                                                                        s_cat(selectedTask?.category_stats?.sale_qty || 0, selectedTask?.category_stats?.sale_product_qty || 1);
-
-                                                                                                    return score.toFixed(1);
-                                                                                                })()}
+                                                                                                {(
+                                                                                                    getMetricScore('monthly_sales', raw.sale_qty || 0) +
+                                                                                                    getMetricScore('reviews', raw.review_qty || 0) +
+                                                                                                    getMetricScore('price', raw.sale_price || 0) +
+                                                                                                    getMetricScore('days_per_review', listedDays, raw.review_qty || 0) +
+                                                                                                    getMetricScore('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0)
+                                                                                                ).toFixed(1)}
                                                                                             </span>
                                                                                         </div>
                                                                                     </div>

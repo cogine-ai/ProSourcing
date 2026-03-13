@@ -1,0 +1,22 @@
+# Docker Ignore File
+node_modules
+dist
+.git
+.gitignore
+Dockerfile*
+docker-compose.yml
+*.log
+*.tar
+*.tmp-*
+*.ps1
+*.json
+!package.json
+!package-lock.json
+
+# Explicitly ignore local storage and caches
+output/
+tmp/
+chrome_user_data/
+frontend_pro/node_modules
+frontend_pro/dist
+frontend_pro/.vite
