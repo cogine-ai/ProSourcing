@@ -17,8 +17,8 @@ from core.scoring import ScoringEngine
 # ==========================================
 # 核心配置
 # ==========================================
-INPUT_FILE = "./output/rpa_output.json"
-TEMPLATE_PATH = "./AI产品开发.xlsx"
+INPUT_FILE = "./output/json/rpa_output.json"
+TEMPLATE_PATH = "./templates/AI产品开发.xlsx"
 OUTPUT_DIR = "./output"
 # 优先从环境变量读取，避免图片入包导致项目臃肿
 IMAGE_DIR = os.getenv("IMAGE_STORAGE_PATH", os.path.join(OUTPUT_DIR, "images"))
@@ -90,7 +90,7 @@ def json_safe(obj):
 def process_rpa_data(task_id=None, input_file=None):
     # 如果没传 input_file，则尝试拼接默认路径
     # 哥，这里一定要统一用相对路径，不然容器里找不着
-    target_file = input_file or os.path.join(OUTPUT_DIR, f"rpa_output_{task_id}.json")
+    target_file = input_file or os.path.join(OUTPUT_DIR, "json", f"rpa_output_{task_id}.json")
     
     if not os.path.exists(target_file):
         print(f"[ERROR] 找不到输入文件: {target_file}")
@@ -277,7 +277,10 @@ def process_rpa_data(task_id=None, input_file=None):
             "monthly_sales": m_sales, "reviews": reviews, "price": price,
             "days_since_creation": days_since_creation,
             "created_dt": created_dt_str.split(' ')[0] if created_dt_str else "N/A",
-            "total_score": total_score, "cat_path": cat_path
+            "total_score": total_score, "cat_path": cat_path,
+            # 哥，存一下各项因子得分，Sheet 1 要用
+            "s_sales": s_sales, "s_reviews": s_reviews, "s_price": s_price,
+            "s_days_per_review": s_days_per_review, "s_avg_sales": s_avg_sales
         })
 
     # 批量同步至数据库 (环境分流)
@@ -336,34 +339,75 @@ def process_rpa_data(task_id=None, input_file=None):
 
     # 3. 产生 Excel 报告
     processed_results.sort(key=lambda x: x['total_score'], reverse=True)
-    output_filename = f"Report_{cat_name}_{datetime.now().strftime('%m%d_%H%M')}.xlsx"
-    output_path = os.path.join(OUTPUT_DIR, output_filename)
+    # 哥，文件名格式：分类名_日期
+    now_date = datetime.now().strftime('%Y%m%d')
+    output_filename = f"{cat_name}_{now_date}.xlsx"
+    output_path = os.path.join(OUTPUT_DIR, "excel", output_filename)
     
     try:
         from openpyxl import Workbook
-        wb = Workbook(); ws = wb.active
-        headers = ['日期', '品类', '图', '月销', '评论', '售价', '单品均销', '上架', '天数', '评分', '链接']
-        for col, h in enumerate(headers, 1): ws.cell(row=1, column=col, value=h)
+        wb = Workbook()
+        
+        # --- Sheet 1: 指标评分 (核心分析表) ---
+        ws1 = wb.active
+        ws1.title = "指标评分"
+        # 哥，按照您的最新要求调整字段
+        headers1 = ['日期', '品类', '图', '链接', '月销评分', '评论评分', '售价评分', '上架天数/评论比值评分', '销品比评分', 'CR3集中度', '总得分']
+        for col, h in enumerate(headers1, 1):
+            ws1.cell(row=1, column=col, value=h)
+        
+        cr3_val = niche_stats.get('cr3', 'N/A')
+        
         for i, p in enumerate(processed_results, start=2):
-            ws.row_dimensions[i].height = 60
-            ws.cell(row=i, column=1, value=datetime.now().strftime("%Y-%m-%d"))
-            ws.cell(row=i, column=2, value=p['cat_path'])
+            ws1.row_dimensions[i].height = 80 # 大图展示
+            ws1.cell(row=i, column=1, value=datetime.now().strftime("%Y-%m-%d"))
+            ws1.cell(row=i, column=2, value=p['cat_path'])
+            
+            # 链接 (移到前面)
+            ws1.cell(row=i, column=4, value=p['url'])
+            
+            # 下载并插入首图
             img_path = download_image(p['image_url'], p['sku'])
             if img_path:
                 try:
-                    img = OpenPyxlImage(img_path); img.width, img.height = 70, 70
-                    ws.add_image(img, f"C{i}")
-                except: ws.cell(row=i, column=3, value="Err")
-            ws.cell(row=i, column=4, value=p['monthly_sales'])
-            ws.cell(row=i, column=5, value=p['reviews'])
-            ws.cell(row=i, column=6, value=p['price'])
-            ws.cell(row=i, column=7, value=f"{cat_ratio:.1f}")
-            ws.cell(row=i, column=8, value=p['created_dt'])
-            ws.cell(row=i, column=9, value=p['days_since_creation'])
-            ws.cell(row=i, column=10, value=p['total_score'])
-            ws.cell(row=i, column=11, value=p['url'])
+                    img = OpenPyxlImage(img_path)
+                    img.width, img.height = 100, 100
+                    ws1.add_image(img, f"C{i}")
+                except:
+                    ws1.cell(row=i, column=3, value="图片失败")
+            
+            # 这里需要各个子评分，由于前面循环里没存，这里重新算一下或者从 processed_results 结构里取
+            # 哥，我回头在前面循环把子评分也塞进 processed_results 里，这里先直接取
+            ws1.cell(row=i, column=5, value=p.get('s_sales', 0))
+            ws1.cell(row=i, column=6, value=p.get('s_reviews', 0))
+            ws1.cell(row=i, column=7, value=p.get('s_price', 0))
+            ws1.cell(row=i, column=8, value=p.get('s_days_per_review', 0))
+            ws1.cell(row=i, column=9, value=p.get('s_avg_sales', 0))
+            ws1.cell(row=i, column=10, value=cr3_val) # CR3 是类目维度的
+            ws1.cell(row=i, column=11, value=p['total_score'])
+
+        # --- Sheet 2: 原始商品数据 ---
+        ws2 = wb.create_sheet("原始商品数据")
+        raw_headers = ["SKU", "商品名称", "品牌", "售价", "评分", "评论数", "商家数", "月销量", "月销售额", "上架日期", "类目名称", "链接"]
+        for col, h in enumerate(raw_headers, 1):
+            ws2.cell(row=1, column=col, value=h)
+            
+        for i, r in enumerate(raw_payloads, start=2):
+            ws2.cell(row=i, column=1, value=r['sku'])
+            ws2.cell(row=i, column=2, value=r['product_name'])
+            ws2.cell(row=i, column=3, value=r['brand_name'])
+            ws2.cell(row=i, column=4, value=r['sale_price'])
+            ws2.cell(row=i, column=5, value=r['product_rate'])
+            ws2.cell(row=i, column=6, value=r['review_qty'])
+            ws2.cell(row=i, column=7, value=r['merchant_count'])
+            ws2.cell(row=i, column=8, value=r['sale_qty'])
+            ws2.cell(row=i, column=9, value=r['sale_amount'])
+            ws2.cell(row=i, column=10, value=r['created_dt'])
+            ws2.cell(row=i, column=11, value=r['category_name'])
+            ws2.cell(row=i, column=12, value=r.get('product_url', ''))
+
         wb.save(output_path)
-        print(f"[SUCCESS] Excel 已生成: {output_path}")
+        print(f"[SUCCESS] Excel 已生成（指标评分校准完成）: {output_path}")
         return output_path
     except Exception as e:
         print(f"[ERROR] Excel 导出失败: {e}")
