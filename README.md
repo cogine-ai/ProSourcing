@@ -25,12 +25,21 @@ python run_dev.py
    python core/rpa_final_pipeline.py
    ```
 
-## 📂 目录结构
+## 📂 目录结构 
 
 - `api/`: 后端服务代码 (FastAPI)
 - `frontend_pro/`: 前端项目代码 (Vite + React)
-- `core/`: 核心采集逻辑与 Pipeline
-- `output/`: 数据产出物 (JSON, Excel, Images)
+- `core/`: 核心业务逻辑 (Scraper, Pipeline, Scoring)
+- `output/`: 统一产出目录
+  - `excel/`: 最终生成的分析报表 (.xlsx)
+  - `json/`: 采集过程中的原始数据 (.json)
+  - `images/`: 商品首图缓存 (.jpg)
+- `tests/`: 脚本库 (安置 100+ 调试、诊断和测试脚本，干净清爽)
+  - `debug/`: 调试类
+  - `tools/`: 工具与提取类
+  - (根目录下为原有测试脚本)
+- `templates/`: 模板文件 (如 Excel 导出模板)
+- `docs/`: 项目文档 (部署指南、SOP 等)
 
 ## 🔧 环境配置
 

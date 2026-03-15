@@ -29,12 +29,19 @@ auth.json
 
 # Project specific
 output/
+tmp/
+MigrationPackage/
+*.tar
 *.png
 *.webp
 *.xlsx
 *.txt
 brain/
 .gemini/
+scripts/
+node_modules/
+dist/
+build/
 
 # IDEs
 .vscode/

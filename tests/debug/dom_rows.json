@@ -1,0 +1,188 @@
+[
+  {
+    "id": "00002",
+    "name": "Телефоны и гаджеты",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00003",
+    "name": "Смартфоны",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 2rem;\"><a class=\"_CategoryLink_1wnun_56\" href=\"/niche/category/00003\">Смартфоны</a></div></td><td class=\"MuiTableCell-root MuiTableCell-body MuiTableCel"
+  },
+  {
+    "id": "00044",
+    "name": "Смарт-часы",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 2rem;\"><a class=\"_CategoryLink_1wnun_56\" href=\"/niche/category/00044\">Смарт-часы</a></div></td><td class=\"MuiTableCell-root MuiTableCell-body MuiTableCe"
+  },
+  {
+    "id": "00105",
+    "name": "Мобильные телефоны",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 2rem;\"><a class=\"_CategoryLink_1wnun_56\" href=\"/niche/category/00105\">Мобильные телефоны</a></div></td><td class=\"MuiTableCell-root MuiTableCell-body Mu"
+  },
+  {
+    "id": "00126",
+    "name": "Гаджеты",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 2rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00138",
+    "name": "Радиотелефоны",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 2rem;\"><a class=\"_CategoryLink_1wnun_56\" href=\"/niche/category/00138\">Радиотелефоны</a></div></td><td class=\"MuiTableCell-root MuiTableCell-body MuiTabl"
+  },
+  {
+    "id": "00570",
+    "name": "Аксессуары для телефонов",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 2rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "03350",
+    "name": "Проводные телефоны",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 2rem;\"><a class=\"_CategoryLink_1wnun_56\" href=\"/niche/category/03350\">Проводные телефоны</a></div></td><td class=\"MuiTableCell-root MuiTableCell-body Mu"
+  },
+  {
+    "id": "06552",
+    "name": "Спутниковые телефоны и коммуникаторы",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 2rem;\"><a class=\"_CategoryLink_1wnun_56\" href=\"/niche/category/06552\">Спутниковые телефоны и коммуникаторы</a></div></td><td class=\"MuiTableCell-root Mu"
+  },
+  {
+    "id": "07456",
+    "name": "Аксессуары для смарт-часов и фитнесс браслетов",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 2rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "09165",
+    "name": "Смарт-очки",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 2rem;\"><a class=\"_CategoryLink_1wnun_56\" href=\"/niche/category/09165\">Смарт-очки</a></div></td><td class=\"MuiTableCell-root MuiTableCell-body MuiTableCe"
+  },
+  {
+    "id": "00005",
+    "name": "Компьютеры",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00012",
+    "name": "ТВ, Аудио, Видео",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00034",
+    "name": "Бытовая техника",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00079",
+    "name": "Автотовары",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00083",
+    "name": "Детские товары",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00147",
+    "name": "Досуг, книги",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00239",
+    "name": "Мебель",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00240",
+    "name": "Товары для дома и дачи",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00299",
+    "name": "Красота и здоровье",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00751",
+    "name": "Аксессуары",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00754",
+    "name": "Строительство, ремонт",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00791",
+    "name": "Обувь",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00864",
+    "name": "Спорт, туризм",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "00933",
+    "name": "Одежда",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "01466",
+    "name": "Товары для животных",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "01793",
+    "name": "Продукты питания",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "02062",
+    "name": "Канцелярские товары",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "02605",
+    "name": "Подарки, товары для праздников",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "02807",
+    "name": "Аптека",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  },
+  {
+    "id": "06498",
+    "name": "Украшения",
+    "paddingLeft": "18px",
+    "htmlSnippet": "<td class=\"MuiTableCell-root MuiTableCell-body MuiTableCell-alignLeft MuiTableCell-sizeMedium css-12u93c5\" data-index=\"0\"><div style=\"padding-left: 0rem;\"><div class=\"_ExpandName_1wnun_61 MuiBox-root css-0\"><div class=\"MuiBox-root css-0\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\""
+  }
+]

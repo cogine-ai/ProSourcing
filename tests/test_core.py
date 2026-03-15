@@ -3,8 +3,10 @@ import pytest
 
 def test_scoring_engine():
     # 测试月销量评分
-    assert ScoringEngine.score_monthly_sales(600) == 4
-    assert ScoringEngine.score_monthly_sales(300) == 3
+    assert ScoringEngine.score_monthly_sales(1500) == 10
+    assert ScoringEngine.score_monthly_sales(800) == 8
+    assert ScoringEngine.score_monthly_sales(500) == 6
+    assert ScoringEngine.score_monthly_sales(300) == 4
     assert ScoringEngine.score_monthly_sales(150) == 2
     assert ScoringEngine.score_monthly_sales(80) == 1
     assert ScoringEngine.score_monthly_sales(10) == 0

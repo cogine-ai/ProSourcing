@@ -15,12 +15,14 @@ from core.scoring import ScoringEngine
 # ==========================================
 # 核心配置 (环境分流)
 # ==========================================
+# 哥，环境变量分流：生产走本地 PG，开发走云端 Supabase
 ENV_MOD = os.getenv("ENV_MOD", "development")
-SUPABASE_URL = "https://furwnoxzsddkytimxtma.supabase.co"
-SUPABASE_KEY = "sb_publishable_YcF-ou8VD7TvqzbhOTF0ew_MPI0Wv3H"
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://furwnoxzsddkytimxtma.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "sb_publishable_YcF-ou8VD7TvqzbhOTF0ew_MPI0Wv3H")
 
 class PGQueryBuilder:
     """每个查询都是独立的实例，彻底解决并发带来的状态污染问题。"""
+    # ... (保持原样无需修改内部逻辑，除非需要特殊处理)
     def __init__(self, conn_url, table_name):
         self.conn_url = conn_url
         self._table = table_name
@@ -167,7 +169,7 @@ if ENV_MOD == "production":
     print(f"[INIT] 生产环境：正在初始化 PostgreSQL 兼容层...")
     supabase = PGSupabaseShim(PG_URL)
 else:
-    print(f"[INIT] 开发环境：正在连接 Supabase 云端...")
+    print(f"[INIT] 开发模式：正在连接云端 Supabase...")
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TEMPLATE_PATH = "./AI产品开发.xlsx"

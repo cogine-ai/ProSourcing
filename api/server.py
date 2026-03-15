@@ -15,6 +15,13 @@ import json
 # 将项目根目录添加到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 环境检测
+is_docker = (
+    os.path.exists('/.dockerenv') or 
+    os.path.exists('/proc/1/cgroup') or 
+    os.getenv("ENV_MOD") == "production"
+)
+
 from core.final_pipeline import run_scoring_and_export
 from core.scoring import ScoringEngine, DEFAULT_CONFIG
 from deep_translator import GoogleTranslator
@@ -678,6 +685,84 @@ def reset_algo_config():
     except: pass
     return {"status": "success", "message": "已恢复默认配置"}
 
+def seed_database_on_startup():
+    """如果数据库为空，自动从 JSON 种子文件加载数据 (哥，增加了 30s 自动重试)"""
+    from core.final_pipeline import supabase as sb
+    import time
+    import json
+    
+    max_retries = 10
+    retry_delay = 3
+    
+    for attempt in range(max_retries):
+        try:
+            # 1. 检查 Master 表是否为空 (顺便测试连接)
+            res = sb.table("algatop_categories_master").select("algatop_id").limit(1).execute()
+            
+            if not res.data:
+                # 哥，路径适配容器环境，优先找 app/scripts
+                seed_file = "scripts/full_category_data.json"
+                if not os.path.exists(seed_file):
+                    seed_file = "/app/scripts/full_category_data.json"
+                
+                if os.path.exists(seed_file):
+                    print(f"[SEED] Database empty. Seeding from {seed_file}...")
+                    with open(seed_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        
+                    # 批量导入 Master (分批以防太大)
+                    master_list = data.get('master', [])
+                    for i in range(0, len(master_list), 500):
+                        batch = master_list[i:i+500]
+                        sb.table("algatop_categories_master").insert(batch).execute()
+                    
+                    # 批量导入 Stats
+                    stats_list = data.get('stats', [])
+                    for i in range(0, len(stats_list), 500):
+                        batch = stats_list[i:i+500]
+                        sb.table("algatop_top_category_stats").insert(batch).execute()
+                    
+                    print(f"✅ Successfully seeded {len(master_list)} categories and {len(stats_list)} stats.")
+
+            # 2. 检查兼容表 categories 是否有数据
+            res_compat = sb.table("categories").select("category_id").limit(1).execute()
+            if not res_compat.data:
+                print("[SEED] Categories table is empty. Syncing from Master...")
+                all_master = []
+                for i in range(10): # 最多 10000 条
+                    res_m = sb.table("algatop_categories_master").select("*").range(i*1000, (i+1)*1000-1).execute()
+                    if not res_m.data: break
+                    all_master.extend(res_m.data)
+                
+                if all_master:
+                    compat_payload = []
+                    for m in all_master:
+                        ru = m.get('name_ru') or ""
+                        cn = m.get('name_cn') or ""
+                        display = f"{ru} ({cn})" if cn else ru
+                        compat_payload.append({
+                            "category_id": m['algatop_id'],
+                            "category_name": display,
+                            "monthly_sales": m.get("monthly_sales") or 0,
+                            "parent_category_id": m.get("parent_id"),
+                            "is_top_level": m.get("level") == 1
+                        })
+                    
+                    for i in range(0, len(compat_payload), 500):
+                        sb.table("categories").insert(compat_payload[i:i+500]).execute()
+                    print(f"✅ Successfully synced {len(compat_payload)} records to categories.")
+            
+            break 
+
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "starting up" in err_msg or "connection" in err_msg:
+                print(f"[RETRY] Database is starting up... Waiting {retry_delay}s (Attempt {attempt+1}/{max_retries})")
+                time.sleep(retry_delay)
+            else:
+                print(f"❌ Seeding error: {e}")
+                break
+
 def load_config_on_startup():
     """启动时尝试从数据库加载配置"""
     from core.final_pipeline import supabase as sb
@@ -692,6 +777,7 @@ def load_config_on_startup():
 # 注册启动事件
 @app.on_event("startup")
 async def startup_event():
+    seed_database_on_startup()
     load_config_on_startup()
 
 if __name__ == "__main__":
