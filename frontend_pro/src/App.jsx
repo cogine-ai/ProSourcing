@@ -416,7 +416,7 @@ const App = () => {
         try {
             const url = new URL(`${API_BASE}/api/tasks/history`);
             url.searchParams.append('page', page);
-            url.searchParams.append('page_size', 60);
+            url.searchParams.append('page_size', 20);
             if (q) url.searchParams.append('q', q);
             
             // 哥，转换时间过滤为天数
@@ -720,9 +720,10 @@ const App = () => {
 
                         {/* --- 视图：选品报告 --- */}
                         {activeTab === 'archives' && (
-                            <div className={`flex-1 flex flex-col min-h-0 ${viewMode === 'list' ? 'overflow-y-auto custom-scrollbar pr-2' : ''}`}>
+                            <div className="flex-1 flex flex-col min-h-0">
                                 {viewMode === 'list' ? (
-                                    <div className="space-y-8">
+                                    <>
+                                        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-8 pb-10">
                                         {tasks.length === 0 ? (
                                             <div className="flex flex-col items-center justify-center py-20 opacity-30 grayscale gap-4">
                                                 <History size={48} />
@@ -803,8 +804,8 @@ const App = () => {
                                                                     <div className="flex-1 flex flex-col justify-center">
                                                                         <div className="grid grid-cols-3 gap-2 mt-4 text-center divide-x divide-border/40">
                                                                             <div className="flex flex-col px-1">
-                                                                                <span className="text-[10px] text-muted-foreground mb-1 font-bold">产品总数</span>
-                                                                                <span className="text-xl font-black text-foreground">{task.category_stats?.sale_product_qty || '--'}</span>
+                                                                                <span className="text-[10px] text-muted-foreground mb-1 font-bold">产品总数/有效数</span>
+                                                                                <span className="text-xl font-black text-foreground">{task.category_stats?.sale_product_qty || '--'} / <span className="text-primary">{task.category_stats?.valid_product_count || '--'}</span></span>
                                                                             </div>
                                                                             <div className="flex flex-col px-1">
                                                                                 <span className="text-[10px] text-muted-foreground mb-1 font-bold">类目销量</span>
@@ -861,14 +862,16 @@ const App = () => {
                                             </div>
                                         )}
 
-                                        {/* 分页导航 */}
-                                        <div className="mt-12 mb-10 flex items-center justify-between border-t border-border/10 pt-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                                        </div>
+
+                                        {/* 分页导航 (Sticky at the bottom) */}
+                                        <div className="shrink-0 sticky bottom-0 bg-background/90 backdrop-blur-md border-t border-border/20 py-6 mt-4 z-20 flex items-center justify-between animate-in fade-in slide-in-from-bottom-4 duration-700 px-2">
                                             <div className="flex flex-col">
                                                 <p className="text-[10px] font-bold text-muted-foreground/40 uppercase tracking-[0.2em] mb-1">Pagination Control</p>
                                                 <p className="text-xs font-black text-foreground">
                                                     Showing <span className="text-primary">{tasks.length}</span> of <span className="text-primary">{totalTasks}</span> items 
                                                     <span className="mx-3 text-muted-foreground/20">|</span> 
-                                                    Page {reportPage} / {Math.ceil(totalTasks / 60) || 1}
+                                                    Page {reportPage} / {Math.ceil(totalTasks / 20) || 1}
                                                 </p>
                                             </div>
                                             <div className="flex gap-3">
@@ -880,7 +883,7 @@ const App = () => {
                                                     <ChevronLeft size={16} className="mr-1" /> Previous
                                                 </button>
                                                 <button 
-                                                    disabled={reportPage >= Math.ceil(totalTasks / 60)}
+                                                    disabled={reportPage >= Math.ceil(totalTasks / 20)}
                                                     onClick={() => { setReportPage(p => p + 1); window.scrollTo({top: 0, behavior: 'smooth'}); }}
                                                     className="flex items-center justify-center w-32 py-3 bg-primary text-primary-foreground border border-primary rounded-xl hover:opacity-90 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95"
                                                 >
@@ -888,7 +891,7 @@ const App = () => {
                                                 </button>
                                             </div>
                                         </div>
-                                    </div>
+                                    </>
                                 ) : (
                                     /* --- 内部详情页视图 (填满内容区) --- */
                                     <div className={`bg-card border border-border ${PDL.radius.card} rounded-card-force shadow-xl flex flex-col overflow-hidden animate-in slide-in-from-right-4 duration-500 flex-1`}>
