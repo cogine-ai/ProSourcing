@@ -77,14 +77,19 @@ class AlgatopRPAScraper:
             self.browser = await self.pw.chromium.connect_over_cdp(ws_url)
             self.context = self.browser.contexts[0]
             
-            # 定期清理挂掉或者残留的无头标签页，防止僵尸页吃爆内存
+            # --- 激进清理标签页 (CodeRabbit 建议) ---
             try:
                 pages = self.context.pages
-                if len(pages) > 3:
-                    print(f"[CLEANUP] 检测到共有 {len(pages)} 个残留标签页，开始清理...")
-                    # 默认只保留最近的两个标签，其余干掉
-                    for p in pages[:-2]:
-                        try: await p.close()
+                if len(pages) > 2:
+                    print(f"[CLEANUP] 当前共有 {len(pages)} 个标签页，激进清理中 (仅保留 1 个)...")
+                    # 循环关闭所有老的标签页，只保留当前这一个或者新开一个
+                    for p in pages:
+                        try:
+                            p_url = p.url
+                            # 如果不是空白页且不是当前操作页，就干掉
+                            if "about:blank" not in p_url:
+                                print(f"  [CLOSE] 正在关闭残留页面: {p_url[:50]}...")
+                                await p.close()
                         except: pass
             except Exception as ce:
                 print(f"[CLEANUP ERROR] {ce}")

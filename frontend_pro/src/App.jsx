@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './index.css';
 import { PDL } from './lib/pdl';
+import { TASK_STATUS } from './constants';
 import Breadcrumbs from './components/Breadcrumbs';
 import { KaspiTaskView } from './components/KaspiTaskView';
 import { SystemSettings } from './components/SystemSettings';
@@ -276,14 +277,16 @@ const App = () => {
     // Helper for status colors
     const getStatusColor = (status) => {
         switch (status) {
-            case 'completed': return 'border-emerald-600/50 text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-600 dark:text-emerald-400';
-            case 'pending':
+            case TASK_STATUS.COMPLETED: return 'border-emerald-600/50 text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-400';
+            case TASK_STATUS.PENDING:
             case 'running':
             case 'crawling':
             case 'reporting':
-            case 'processing': return 'border-amber-600/50 text-amber-600 dark:border-amber-400/50 dark:text-amber-400';
-            case 'failed':
+            case 'processing':
+            case TASK_STATUS.SCRAPING: return 'border-amber-600/50 text-amber-600 dark:border-amber-400/50 dark:text-amber-400';
+            case TASK_STATUS.FAILED:
             case 'error': return 'border-rose-600/50 text-rose-600 dark:border-rose-400/50 dark:text-rose-400';
+            case TASK_STATUS.RETRYING: return 'border-blue-600/50 text-blue-600 dark:border-blue-400/50 dark:text-blue-400';
             default: return 'border-muted-foreground/50 text-muted-foreground';
         }
     };
@@ -728,9 +731,9 @@ const App = () => {
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                                                 {tasks.map((task) => {
-                                                        const isCompleted = task.status === 'completed';
-                                                        const isFailed = task.status === 'failed';
-                                                        const isRunning = !isCompleted && !isFailed;
+                                                        const isCompleted = task.status === TASK_STATUS.COMPLETED;
+                                                        const isFailed = task.status === TASK_STATUS.FAILED;
+                                                        const isRunning = !isCompleted && !isFailed && task.status !== TASK_STATUS.RETRYING;
 
                                                         return (
                                                             <div
