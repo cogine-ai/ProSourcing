@@ -753,7 +753,7 @@ const App = () => {
                                                                             {getCategoryDisplayName(task)}
                                                                             {task.up_categories && typeof task.up_categories !== 'string' && task.up_categories.length > 0 && (
                                                                                 <span className="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[10px] uppercase font-bold tracking-widest rounded-md shrink-0">
-                                                                                    {task.up_categories[0]?.category_name || '一级类目'}
+                                                                                    {getCategoryDisplayName(task.up_categories[0]) || '一级类目'}
                                                                                 </span>
                                                                             )}
                                                                         </h4>

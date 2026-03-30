@@ -105,6 +105,30 @@ def process_rpa_data(task_id=None, input_file=None):
     products = rpa_data.get("products", [])[:160]  # 哥，本次多页采集同步 160 条 (8页)
     trend = rpa_data.get("trend", [])
 
+    # 哥，针对一级分类的中文化增强逻辑 (针对 21 个固定一级大类，由于 Algatop API 仅返回俄文)
+    up_cats = niche_stats.get("up_categories_json") or []
+    if up_cats:
+        try:
+            # 建立一级分类 ID 到中文名的映射 (仅在有上级类目时触发查表)
+            p_cid = str(up_cats[0].get("category_id"))
+            cn_data = None
+            if ENV_MOD == "production":
+                cur_tmp = conn.cursor()
+                cur_tmp.execute("SELECT name_cn, name_ru FROM algatop_categories_master WHERE algatop_id = %s AND level = 1", (p_cid,))
+                cn_data = cur_tmp.fetchone()
+                cur_tmp.close()
+            else:
+                res_tmp = supabase.table("algatop_categories_master").select("name_cn, name_ru").eq("algatop_id", p_cid).eq("level", 1).execute()
+                if res_tmp.data: cn_data = (res_tmp.data[0]['name_cn'], res_tmp.data[0]['name_ru'])
+
+            if cn_data and cn_data[0]:
+                # 记录原始俄文，拼接中文名，格式统一为 "俄文 (中文)"
+                cn, ru = cn_data[0], cn_data[1]
+                up_cats[0]["category_name"] = f"{ru} ({cn})"
+                print(f"[L10N] 已自动增强一级分类名称: {up_cats[0]['category_name']}")
+        except Exception as e:
+            print(f"[WARN] 一级分类中文化失败: {e}")
+
     if not products:
         print("[ERROR] 商品列表为空，请检查采集环节。")
         return
