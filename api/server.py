@@ -571,6 +571,14 @@ def retry_task(task_id: str, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=404, detail="Task not found")
     t = res.data[0]
     
+    # 哥，针对防重试连点（幂等性）的增强：如果已经在队列或执行中，直接拦截
+    if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
+        return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
+
+    # 哥，针对防重试连点（幂等性）的增强：如果已经在队列或执行中，直接拦截
+    if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
+        return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
+
     # 强制重置状态和进度
     payload = {
         "status": "pending", 

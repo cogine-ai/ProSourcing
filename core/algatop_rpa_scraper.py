@@ -7,6 +7,7 @@ import requests
 import random
 import time
 import math
+import traceback
 from urllib.parse import quote
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
@@ -92,7 +93,9 @@ class AlgatopRPAScraper:
                                 await p.close()
                         except: pass
             except Exception as ce:
-                print(f"[CLEANUP ERROR] {ce}")
+                print(f"[CLEANUP ERROR] 无法清理残留页面: {ce}")
+                import traceback
+                traceback.print_exc()
 
             # 创建一个新页面，而不是复用可能不稳定的第一个页面
             self.page = await self.context.new_page()
