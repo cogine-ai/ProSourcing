@@ -62,7 +62,8 @@ function TreeNode({ node, level = 0 }) {
                     />
                 </div>
                 <div className="flex-1 cursor-pointer select-none" onClick={() => !isLeaf && setExpanded(!expanded)}>
-                    <span className={`${isLeaf ? 'text-muted-foreground' : 'text-foreground'}`}>{displayName}</span>
+                    <span className={`${isLeaf ? 'text-muted-foreground font-medium' : 'text-foreground'}`}>{displayName}</span>
+                    {isLeaf && node.last_crawl_date && <span className="ml-2 text-[10px] font-mono text-primary/40">({node.last_crawl_date})</span>}
                     {isLeaf ? '' : <span className="text-[10px] ml-2 opacity-30">({collectLeafIds(node).length})</span>}
                 </div>
             </div>

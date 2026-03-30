@@ -823,6 +823,23 @@ def get_kaspi_global_tree():
             if len(res.data) < page_size: break
         
         if not all_cats: return []
+
+        # 哥，针对所有叶子节点，一次性查出它们最近的成功采集时间
+        all_leaf_ids = [str(c['algatop_id']) for c in all_cats if c.get('is_leaf')]
+        date_map = {}
+        if all_leaf_ids:
+            try:
+                # 获取所有成功过任务的最新时间
+                # 哥，这里拉取全部成功过的，后续直接在内存里覆盖，保证拿到的是每个 ID 最后的那个 created_at
+                res_tasks = sb.table("analysis_tasks").select("category_id, created_at").eq("status", "completed").order("created_at", desc=False).execute()
+                for t in res_tasks.data:
+                    cid = str(t.get('category_id')) if t.get('category_id') else None
+                    dt = t.get('created_at')
+                    if cid and dt:
+                        # 只取日期部分 yyyy-mm-dd
+                        date_map[cid] = dt[:10]
+            except: pass
+
         p_map = {}
         for c in all_cats:
             raw_pid = c.get('parent_id')
@@ -831,7 +848,8 @@ def get_kaspi_global_tree():
                 'category_code': str(c['algatop_id']),
                 'title': c.get('name_cn') or c.get('name_ru') or str(c['algatop_id']),
                 'parent_code': pid,
-                'is_leaf': c.get('is_leaf', False)
+                'is_leaf': c.get('is_leaf', False),
+                'last_crawl_date': date_map.get(str(c['algatop_id']))
             }
             p_map.setdefault(pid, []).append(node)
 
