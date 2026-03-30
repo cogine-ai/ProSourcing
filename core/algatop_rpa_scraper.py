@@ -76,6 +76,19 @@ class AlgatopRPAScraper:
             # 如果 ws_url 包含 ws://，connect_over_cdp 会直接使用该地址，避开探测
             self.browser = await self.pw.chromium.connect_over_cdp(ws_url)
             self.context = self.browser.contexts[0]
+            
+            # 定期清理挂掉或者残留的无头标签页，防止僵尸页吃爆内存
+            try:
+                pages = self.context.pages
+                if len(pages) > 3:
+                    print(f"[CLEANUP] 检测到共有 {len(pages)} 个残留标签页，开始清理...")
+                    # 默认只保留最近的两个标签，其余干掉
+                    for p in pages[:-2]:
+                        try: await p.close()
+                        except: pass
+            except Exception as ce:
+                print(f"[CLEANUP ERROR] {ce}")
+
             # 创建一个新页面，而不是复用可能不稳定的第一个页面
             self.page = await self.context.new_page()
             
@@ -448,6 +461,13 @@ async def main():
                 print("[ERROR] 类目数据加载失败")
                 return False
         finally:
+            if hasattr(scraper, 'page') and scraper.page:
+                try:
+                    await scraper.page.close()
+                    print("[CLEANUP] 主动销毁当前采集标签页，释放内存。")
+                except:
+                    pass
+                    
             if hasattr(scraper, 'pw') and scraper.pw:
                 await scraper.pw.stop()
 
