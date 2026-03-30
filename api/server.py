@@ -88,7 +88,7 @@ def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
     return task
 
 @app.get("/api/tasks/history")
-def get_task_history(page: int = 1, page_size: int = 60, q: Optional[str] = None, days: Optional[int] = None, status: Optional[str] = None, top_category: Optional[str] = None):
+def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None, days: Optional[int] = None, status: Optional[str] = None, top_category: Optional[str] = None):
     """获取历史任务记录，支持物理分页和搜索/时间筛选"""
     from core.final_pipeline import supabase as sb
     from datetime import datetime, timedelta

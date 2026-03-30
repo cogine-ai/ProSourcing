@@ -189,6 +189,7 @@ def process_rpa_data(task_id=None, input_file=None):
         niche_stats["brand_qty"] = brand_count_original
         niche_stats["sale_merchant_qty"] = niche_stats.get("sale_seller_qty") or 0
         niche_stats["cr3"] = f"{cr3_ratio:.1f}%"
+        niche_stats["valid_product_count"] = 0 # 占位，稍后由循环统计覆盖
         
         print(f"[STATS] 指标校准：Top3={top3_revenue}, 品牌数(原装)={brand_count_original}, 卖家数={niche_stats['sale_merchant_qty']}, CR3={niche_stats['cr3']}")
 
@@ -209,6 +210,7 @@ def process_rpa_data(task_id=None, input_file=None):
         try: return float(str(v).replace(' ', '').replace(',', ''))
         except: return 0.0
 
+    valid_product_count = 0
     for p in products:
         sku = str(p.get('product_code'))
         m_sales = safe_int(p.get('sale_qty', 0))
@@ -236,6 +238,10 @@ def process_rpa_data(task_id=None, input_file=None):
         
         # 总分加和 (月销量 + 评论 + 价格 + 销品比 + 成长潜力)
         total_score = s_sales + s_reviews + s_price + s_avg_sales + s_days_per_review
+
+        # 哥，计算有效产品数（符合潜力优质筛选标准：销量>=60, 评论>=15, 价格>=800, 天数<=300）
+        if m_sales >= 60 and reviews >= 15 and price >= 800 and days_since_creation <= 300:
+            valid_product_count += 1
 
         # 构造 Raw Payload (对齐 V2.0 Schema)
         raw_payloads.append({
@@ -287,6 +293,10 @@ def process_rpa_data(task_id=None, input_file=None):
             "s_sales": s_sales, "s_reviews": s_reviews, "s_price": s_price,
             "s_days_per_review": s_days_per_review, "s_avg_sales": s_avg_sales
         })
+
+    # 哥，把最终统计的有效数塞进大盘数据
+    niche_stats["valid_product_count"] = valid_product_count
+    print(f"[STATS] 有效产品数统计完成: {valid_product_count}")
 
     # 批量同步至数据库 (环境分流)
     if raw_payloads:
