@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './index.css';
 import { PDL } from './lib/pdl';
+import { TASK_STATUS } from './constants';
 import Breadcrumbs from './components/Breadcrumbs';
 import { KaspiTaskView } from './components/KaspiTaskView';
 import { SystemSettings } from './components/SystemSettings';
@@ -184,6 +185,7 @@ const App = () => {
     const [reportSearch, setReportSearch] = useState('');
     const [reportStatus, setReportStatus] = useState('all');
     const [reportTime, setReportTime] = useState('all');
+    const [reportTopCat, setReportTopCat] = useState('all');
     const [reportPage, setReportPage] = useState(1);
     const [totalTasks, setTotalTasks] = useState(0);
     const [viewLogId, setViewLogId] = useState(null);
@@ -275,14 +277,16 @@ const App = () => {
     // Helper for status colors
     const getStatusColor = (status) => {
         switch (status) {
-            case 'completed': return 'border-emerald-600/50 text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-600 dark:text-emerald-400';
-            case 'pending':
+            case TASK_STATUS.COMPLETED: return 'border-emerald-600/50 text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-400';
+            case TASK_STATUS.PENDING:
             case 'running':
             case 'crawling':
             case 'reporting':
-            case 'processing': return 'border-amber-600/50 text-amber-600 dark:border-amber-400/50 dark:text-amber-400';
-            case 'failed':
+            case 'processing':
+            case TASK_STATUS.SCRAPING: return 'border-amber-600/50 text-amber-600 dark:border-amber-400/50 dark:text-amber-400';
+            case TASK_STATUS.FAILED:
             case 'error': return 'border-rose-600/50 text-rose-600 dark:border-rose-400/50 dark:text-rose-400';
+            case TASK_STATUS.RETRYING: return 'border-blue-600/50 text-blue-600 dark:border-blue-400/50 dark:text-blue-400';
             default: return 'border-muted-foreground/50 text-muted-foreground';
         }
     };
@@ -338,12 +342,12 @@ const App = () => {
     useEffect(() => {
         fetchTopStats();
         fetchGlobalStats();
-        fetchHistory(reportPage, reportSearch, reportTime);
+        fetchHistory(reportPage, reportSearch, reportTime, reportStatus, reportTopCat);
         fetchAllCategories();
-        const interval = setInterval(() => fetchHistory(reportPage, reportSearch, reportTime), 5000);
+        const interval = setInterval(() => fetchHistory(reportPage, reportSearch, reportTime, reportStatus, reportTopCat), 5000);
         fetchAlgoConfig();
         return () => clearInterval(interval);
-    }, [reportPage, reportSearch, reportTime]);
+    }, [reportPage, reportSearch, reportTime, reportStatus, reportTopCat]);
 
     const fetchAlgoConfig = async () => {
         try {
@@ -408,7 +412,7 @@ const App = () => {
         } catch (err) { console.error("Fetch all categories failed", err); }
     };
 
-    const fetchHistory = async (page = reportPage, q = reportSearch, time = reportTime) => {
+    const fetchHistory = async (page = reportPage, q = reportSearch, time = reportTime, status = reportStatus, topCat = reportTopCat) => {
         try {
             const url = new URL(`${API_BASE}/api/tasks/history`);
             url.searchParams.append('page', page);
@@ -427,6 +431,8 @@ const App = () => {
                 }
                 if (days > 0) url.searchParams.append('days', days);
             }
+            if (status !== 'all') url.searchParams.append('status', status);
+            if (topCat !== 'all') url.searchParams.append('top_category', topCat);
             
             const res = await fetch(url);
             const data = await res.json();
@@ -467,6 +473,16 @@ const App = () => {
             }
         } catch (error) { console.error("Create task failed", error); }
     };
+    
+    const handleRetryTask = async (taskId) => {
+        try {
+            const res = await fetch(`${API_BASE}/api/tasks/${taskId}/retry`, { method: 'POST' });
+            if (res.ok) {
+                alert('任务已重新加入采集队列！');
+                fetchHistory();
+            }
+        } catch (e) { console.error("Retry task failed", e); }
+    };
 
     const handleToggleLeaf = (leafId) => {
         setSelectedCats(prev =>
@@ -491,18 +507,21 @@ const App = () => {
         if (selectedCats.length === 0) return;
         setLoading(true);
 
-        const allKnownLeaves = categories.flatMap(c => c.leaves || []);
-
-        for (const catId of selectedCats) {
-            const leaf = allKnownLeaves.find(l => l.category_id === catId);
-            const targetName = leaf ? leaf.category_name : catId;
-
-            await fetch(`${API_BASE}/api/tasks/category`, {
+        try {
+            const res = await fetch(`${API_BASE}/api/kaspi/tasks/batch`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ category: targetName })
+                body: JSON.stringify(selectedCats)
             });
-        }
+            const data = await res.json();
+            if (data.success || data.status === 'success') {
+                const total = data.total_requested || selectedCats.length;
+                const filtered = data.filtered_duplicate || 0;
+                const actual = data.actual_executed || (data.tasks ? data.tasks.length : 0);
+                alert(`本次发起 ${total} 个任务，已存在/过滤 ${filtered} 个，实际新执行 ${actual} 个并发采集任务。`);
+            }
+        } catch(e) { console.error('Batch error', e); }
+
         setSelectedCats([]);
         setLoading(false);
         fetchHistory();
@@ -644,6 +663,24 @@ const App = () => {
                                             <option value="30d">最近 30 天内</option>
                                             <option value="this_month">本月报告</option>
                                         </select>
+                                        <select 
+                                            value={reportStatus}
+                                            onChange={e => { setReportStatus(e.target.value); setReportPage(1); }}
+                                            className="bg-card/50 border border-border rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-widest focus:outline-none appearance-none cursor-pointer hover:border-primary/30 transition-all min-w-[120px]"
+                                        >
+                                            <option value="all">全部状态</option>
+                                            <option value="completed">已完成</option>
+                                            <option value="pending">执行中</option>
+                                            <option value="failed">错误失败</option>
+                                        </select>
+                                        <select 
+                                            value={reportTopCat}
+                                            onChange={e => { setReportTopCat(e.target.value); setReportPage(1); }}
+                                            className="bg-card/50 border border-border rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-widest focus:outline-none appearance-none cursor-pointer hover:border-primary/30 transition-all min-w-[120px]"
+                                        >
+                                            <option value="all">全部分类</option>
+                                            {categories.map(c => <option key={c.category_id} value={c.name_cn || c.name_ru}>{c.name_cn || c.name_ru}</option>)}
+                                        </select>
                                     </div>
                                 ) : null}
                             />
@@ -694,9 +731,9 @@ const App = () => {
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                                                 {tasks.map((task) => {
-                                                        const isCompleted = task.status === 'completed';
-                                                        const isFailed = task.status === 'failed';
-                                                        const isRunning = !isCompleted && !isFailed;
+                                                        const isCompleted = task.status === TASK_STATUS.COMPLETED;
+                                                        const isFailed = task.status === TASK_STATUS.FAILED;
+                                                        const isRunning = !isCompleted && !isFailed && task.status !== TASK_STATUS.RETRYING;
 
                                                         return (
                                                             <div
@@ -712,11 +749,18 @@ const App = () => {
                                                                 {/* Header */}
                                                                 <div className="flex justify-between items-start mb-4 border-b border-border/40 pb-3">
                                                                     <div className="pr-3 flex-1 min-w-0">
-                                                                        <h4 className="font-black text-foreground text-xl truncate" title={task.category}>
+                                                                        <h4 className="font-black text-foreground text-xl truncate flex items-center gap-2" title={task.category}>
                                                                             {getCategoryDisplayName(task)}
+                                                                            {task.up_categories && typeof task.up_categories !== 'string' && task.up_categories.length > 0 && (
+                                                                                <span className="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[10px] uppercase font-bold tracking-widest rounded-md shrink-0">
+                                                                                    {task.up_categories[0]?.category_name || '一级类目'}
+                                                                                </span>
+                                                                            )}
                                                                         </h4>
-                                                                        <p className="text-xs text-muted-foreground mt-1 tracking-tight truncate">
-                                                                            {formatDateTime(task.created_at)}
+                                                                        <p className="text-xs text-muted-foreground mt-2 tracking-tight truncate flex items-center gap-2">
+                                                                            <span className="w-1.5 h-1.5 bg-muted-foreground/30 rounded-full"></span>
+                                                                            {formatDateTime(task.updated_at || task.created_at)}
+                                                                            {task.updated_at && <span className="ml-1 text-[9px] font-bold tracking-widest uppercase border px-1 rounded-sm border-muted/50 text-muted-foreground/50">Updated</span>}
                                                                         </p>
                                                                     </div>
                                                                     <div className="shrink-0 ml-2 flex flex-col items-end gap-1">
@@ -741,7 +785,7 @@ const App = () => {
                                                                             <>
                                                                                 <div className={`px-3 py-1 font-black text-xs opacity-80 uppercase rounded-md tracking-widest border-2 mb-0.5 ${getStatusColor(task.status)}`}>失败</div>
                                                                                 <div className="flex gap-2">
-                                                                                    <button className="text-[10px] font-bold text-muted-foreground hover:text-rose-500 transition-colors tracking-widest uppercase" onClick={(e) => e.stopPropagation()}>重试</button>
+                                                                                    <button className="text-[10px] font-bold text-muted-foreground hover:text-rose-500 transition-colors tracking-widest uppercase" onClick={(e) => { e.stopPropagation(); handleRetryTask(task.id); }}>重试</button>
                                                                                     <button
                                                                                         className="text-[10px] font-bold text-muted-foreground hover:text-primary transition-colors tracking-widest uppercase"
                                                                                         onClick={(e) => { e.stopPropagation(); setViewLogId(task.id); }}

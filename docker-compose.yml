@@ -17,7 +17,7 @@ services:
     restart: always
 
   backend:
-    image: prosourcing-backend:v20260324_clean
+    image: prosourcing-backend:v20260327
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -43,7 +43,7 @@ services:
     restart: always
 
   frontend:
-    image: prosourcing-frontend:v20260324_clean
+    image: prosourcing-frontend:v20260327
     build:
       context: .
       dockerfile: Dockerfile.frontend

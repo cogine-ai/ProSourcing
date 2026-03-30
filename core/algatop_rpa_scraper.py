@@ -7,6 +7,7 @@ import requests
 import random
 import time
 import math
+import traceback
 from urllib.parse import quote
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
@@ -76,6 +77,26 @@ class AlgatopRPAScraper:
             # 如果 ws_url 包含 ws://，connect_over_cdp 会直接使用该地址，避开探测
             self.browser = await self.pw.chromium.connect_over_cdp(ws_url)
             self.context = self.browser.contexts[0]
+            
+            # --- 激进清理标签页 (CodeRabbit 建议) ---
+            try:
+                pages = self.context.pages
+                if len(pages) > 2:
+                    print(f"[CLEANUP] 当前共有 {len(pages)} 个标签页，激进清理中 (仅保留 1 个)...")
+                    # 循环关闭所有老的标签页，只保留当前这一个或者新开一个
+                    for p in pages:
+                        try:
+                            p_url = p.url
+                            # 如果不是空白页且不是当前操作页，就干掉
+                            if "about:blank" not in p_url:
+                                print(f"  [CLOSE] 正在关闭残留页面: {p_url[:50]}...")
+                                await p.close()
+                        except: pass
+            except Exception as ce:
+                print(f"[CLEANUP ERROR] 无法清理残留页面: {ce}")
+                import traceback
+                traceback.print_exc()
+
             # 创建一个新页面，而不是复用可能不稳定的第一个页面
             self.page = await self.context.new_page()
             
@@ -448,6 +469,13 @@ async def main():
                 print("[ERROR] 类目数据加载失败")
                 return False
         finally:
+            if hasattr(scraper, 'page') and scraper.page:
+                try:
+                    await scraper.page.close()
+                    print("[CLEANUP] 主动销毁当前采集标签页，释放内存。")
+                except:
+                    pass
+                    
             if hasattr(scraper, 'pw') and scraper.pw:
                 await scraper.pw.stop()
 

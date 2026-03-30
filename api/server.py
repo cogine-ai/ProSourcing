@@ -88,7 +88,7 @@ def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
     return task
 
 @app.get("/api/tasks/history")
-def get_task_history(page: int = 1, page_size: int = 60, q: Optional[str] = None, days: Optional[int] = None):
+def get_task_history(page: int = 1, page_size: int = 60, q: Optional[str] = None, days: Optional[int] = None, status: Optional[str] = None, top_category: Optional[str] = None):
     """获取历史任务记录，支持物理分页和搜索/时间筛选"""
     from core.final_pipeline import supabase as sb
     from datetime import datetime, timedelta
@@ -103,6 +103,13 @@ def get_task_history(page: int = 1, page_size: int = 60, q: Optional[str] = None
         after = datetime.now() - timedelta(days=days)
         # 兼容 ISO 格式
         query = query.gte("created_at", after.isoformat())
+        
+    if status and status != 'all':
+        query = query.eq("status", status)
+        
+    if top_category and top_category != 'all':
+        # 通过 supabase jsonb 的包含查询过滤含有该大类名的节点
+        query = query.contains("up_categories", [{"category_name": top_category}])
     
     # 1. 获取满足条件的精确总数
     count_res = query.select("*", count="exact").execute()
@@ -555,6 +562,40 @@ async def get_top_category_leaves(top_id: str):
 
 
 
+@app.post("/api/tasks/{task_id}/retry", response_model=TaskStatus)
+def retry_task(task_id: str, background_tasks: BackgroundTasks):
+    """重试失败的任务，接通前端点击"""
+    from core.final_pipeline import supabase as sb
+    res = sb.table("analysis_tasks").select("*").eq("id", task_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Task not found")
+    t = res.data[0]
+    
+    # 哥，针对防重试连点（幂等性）的增强：如果已经在队列或执行中，直接拦截
+    if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
+        return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
+
+    # 哥，针对防重试连点（幂等性）的增强：如果已经在队列或执行中，直接拦截
+    if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
+        return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
+
+    # 强制重置状态和进度
+    payload = {
+        "status": "pending", 
+        "progress": 0, 
+        "error_msg": None, 
+        "excel_path": None, 
+        "updated_at": datetime.now().isoformat()
+    }
+    sb.table("analysis_tasks").update(payload).eq("id", task_id).execute()
+    
+    # 获取原始类别ID，如果是空则用名称兜底
+    cat_id = t.get("category_id") or t.get("category")
+    
+    background_tasks.add_task(execute_rpa_pipeline, task_id, cat_id, t.get("category"))
+    return TaskStatus(task_id=task_id, category=t['category'], status="pending", progress=0)
+
+
 @app.post("/api/tasks/category", response_model=TaskStatus)
 def create_category_task(req: TaskRequest, background_tasks: BackgroundTasks):
     """强制根据品类数字 ID 发起选品分析任务 - 改为线程模式"""
@@ -562,7 +603,19 @@ def create_category_task(req: TaskRequest, background_tasks: BackgroundTasks):
     category_id = req.category
     display_title = category_id
     
-    # 哥，如果是数字 ID，直接去主表查中文名存库
+    # 哥，针对防重复抓取的检测：15天同类目拦截
+    recent_limit = (datetime.now() - timedelta(days=15)).isoformat()
+    recent = sb.table("analysis_tasks").select("id").eq("category_id", str(category_id)).eq("status", "completed").gte("created_at", recent_limit).limit(1).execute()
+    if recent.data:
+        # 如果已经有了，不创建任务，直接返回一个已完成的 Task 占位
+        return TaskStatus(
+            task_id=recent.data[0]['id'],
+            category=str(category_id),
+            status="completed",
+            progress=100
+        )
+    
+    # 如果是数字 ID，直接去主表查中文名存库
     if str(category_id).isdigit():
         res_master = sb.table("algatop_categories_master").select("name_cn").eq("algatop_id", int(category_id)).limit(1).execute()
         if res_master.data and res_master.data[0]['name_cn']:
@@ -573,7 +626,8 @@ def create_category_task(req: TaskRequest, background_tasks: BackgroundTasks):
         "category_id": category_id,
         "status": "pending",
         "progress": 0,
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat()
     }
     res = sb.table("analysis_tasks").insert(task_data).execute()
     db_task = res.data[0]
@@ -635,6 +689,7 @@ async def execute_rpa_pipeline(task_id: str, category_id: str, category_name: st
         if url: payload["excel_path"] = url
         if err: payload["error_msg"] = err
         if duration: payload["duration"] = duration
+        payload["updated_at"] = datetime.now().isoformat()
         await asyncio.to_thread(sb.table("analysis_tasks").update(payload).eq("id", task_id).execute)
 
     async def write_log(f, msg):
@@ -794,6 +849,9 @@ def get_kaspi_global_tree():
 @app.post('/api/kaspi/tasks/batch')
 def create_kaspi_tasks_batch(item_codes: list[str], background_tasks: BackgroundTasks):
     from core.final_pipeline import supabase as sb
+    
+    total_requested = len(item_codes)
+    
     # 哥，先把这些 ID 的中文名全副武装好，优先去 master 主表拿最正宗的翻译
     res_master = sb.table('algatop_categories_master').select('algatop_id, name_cn, name_ru').in_('algatop_id', item_codes).execute()
     
@@ -819,21 +877,42 @@ def create_kaspi_tasks_batch(item_codes: list[str], background_tasks: Background
             code_map[aid] = name
             code_map[kid] = name
 
+    # 哥，15天同类目拦截过滤！防止重复发起资源浪费
+    recent_limit = (datetime.now() - timedelta(days=15)).isoformat()
+    recent = sb.table("analysis_tasks").select("category_id").in_("category_id", item_codes).eq("status", "completed").gte("created_at", recent_limit).execute()
+    recent_ids = {r['category_id'] for r in recent.data if r.get('category_id')}
+    
+    filtered_codes = [c for c in item_codes if c not in recent_ids]
+    filtered_count = total_requested - len(filtered_codes)
+
     payload = []
-    for code in item_codes:
+    for code in filtered_codes:
         display_name = code_map.get(str(code), str(code))
         payload.append({
             'category_id': str(code),
             'category': display_name,
             'status': 'pending',
-            'progress': 0
+            'progress': 0,
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
         })
         
     try:
-        inserted = sb.table('analysis_tasks').insert(payload).execute()
-        for task in inserted.data:
-            background_tasks.add_task(execute_rpa_pipeline, task['id'], task['category_id'], task['category'])
-        return {'success': True, 'count': len(inserted.data)}
+        if payload:
+            inserted = sb.table('analysis_tasks').insert(payload).execute()
+            for task in inserted.data:
+                background_tasks.add_task(execute_rpa_pipeline, task['id'], task['category_id'], task['category'])
+            actual_count = len(inserted.data)
+        else:
+            actual_count = 0
+            
+        return {
+            'success': True,
+            'count': actual_count,
+            'total_requested': total_requested,
+            'filtered_duplicate': filtered_count,
+            'actual_executed': actual_count
+        }
     except Exception as e:
         return {'success': False, 'message': str(e)}
 
