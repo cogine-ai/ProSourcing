@@ -1,32 +1,88 @@
-# ProSourcing - AI 选品分析系统
+<div align="center">
+  <img src="./assets/logo.png" width="120" height="120" alt="ProSourcing Logo" />
+  <h1>ProSourcing</h1>
+  <p><b>AI-Powered Product Sourcing & Analytics System</b></p>
+  <p><i>高效的一键式 AI 选品与分析解决方案</i></p>
 
-哥，这是一个集成了 RPA 采集、潜力评分算法和可视化报表的完整系统。
+  <p>
+    <img src="https://img.shields.io/github/license/cogine-ai/ProSourcing?style=for-the-badge&color=blue" alt="license" />
+    <img src="https://img.shields.io/github/v/release/cogine-ai/ProSourcing?style=for-the-badge&color=green" alt="version" />
+    <img src="https://img.shields.io/github/last-commit/cogine-ai/ProSourcing?style=for-the-badge" alt="last commit" />
+    <img src="https://img.shields.io/github/repo-size/cogine-ai/ProSourcing?style=for-the-badge" alt="repo size" />
+  </p>
 
-## 🚀 快速启动
+  <p>
+    <a href="#english">English</a> | 
+    <a href="#中文">中文</a>
+  </p>
+</div>
 
-你可以通过以下命令一键启动后端（FastAPI）和前端（Vite）：
+---
 
+<h2 id="english">🌐 English</h2>
+
+### Introduction
+**ProSourcing** is a comprehensive product sourcing system that integrates RPA data collection, potential scoring algorithms, and interactive visual reports. Designed to streamline the transition from raw marketplace data to actionable business insights.
+
+### 🚀 Quick Start
+Launch both the backend (FastAPI) and frontend (Vite) with a single command:
 ```powershell
 python run_dev.py
 ```
 
-## 🛠️ 核心工作流
+### 🛠️ Core Workflows
+1.  **RPA Scraper**: Crawl data from Algatop.
+    ```powershell
+    python core/algatop_rpa_scraper.py [category_code]
+    ```
+2.  **Pipeline & Analytics**: Sync JSON to Supabase and generate Excel reports.
+    ```powershell
+    python core/rpa_final_pipeline.py
+    ```
 
-1. **RPA 采集**：
-   运行 RPA 脚本抓取 Algatop 数据。
-   ```powershell
-   python core/algatop_rpa_scraper.py [类目代码]
-   ```
-   *默认类目为 04456 (儿童交通)*
+### 📂 Project Structure
+- `api/`: Backend services (FastAPI)
+- `frontend_pro/`: Frontend application (Vite + React)
+- `core/`: Core business logic (Scraper, Pipeline, Scoring)
+- `output/`: Unified output directory
+  - `excel/`: Final analysis reports (.xlsx)
+  - `json/`: Raw crawled data (.json)
+  - `images/`: Product image cache (.jpg)
+- `tests/`: Script library (Host to 100+ debug, diagnostic, and test scripts)
+  - `debug/`: Debugging scripts
+  - `tools/`: Utility and extraction tools
+- `templates/`: Template files (e.g., Excel export templates)
+- `docs/`: Project documentation (Deployment guides, SOPs, etc.)
 
-2. **数据入库与评分**：
-   将抓取的本地 JSON 同步到 Supabase 数据库并生成 Excel 报告。
-   ```powershell
-   python core/rpa_final_pipeline.py
-   ```
+### 🔧 Configuration
+Ensure a `.env` file exists in the root directory:
+- `ALGATOP_USER` / `ALGATOP_PASS`: Credentials
+- `SUPABASE_URL` / `SUPABASE_KEY`: Database settings
 
-## 📂 目录结构 
+---
 
+<h2 id="中文">🇨🇳 中文</h2>
+
+### 项目简介
+**ProSourcing** 是一个完整的 AI 选品分析系统。它集成了 **RPA 自动采集**、**潜力评分算法** 和 **可视化报表**，旨在帮助用户快速从海量市场数据中挖掘出具有潜力的爆款产品。
+
+### 🚀 快速启动
+你可以通过以下命令一键启动后端（FastAPI）和前端（Vite）：
+```powershell
+python run_dev.py
+```
+
+### 🛠️ 核心工作流
+1.  **RPA 采集**：运行脚本抓取 Algatop 类目数据。
+    ```powershell
+    python core/algatop_rpa_scraper.py [类目代码]
+    ```
+2.  **数据分析与入库**：同步本地数据至 Supabase 并生成 Excel 分析报告。
+    ```powershell
+    python core/rpa_final_pipeline.py
+    ```
+
+### 📂 目录结构 
 - `api/`: 后端服务代码 (FastAPI)
 - `frontend_pro/`: 前端项目代码 (Vite + React)
 - `core/`: 核心业务逻辑 (Scraper, Pipeline, Scoring)
@@ -37,32 +93,18 @@ python run_dev.py
 - `tests/`: 脚本库 (安置 100+ 调试、诊断和测试脚本，干净清爽)
   - `debug/`: 调试类
   - `tools/`: 工具与提取类
-  - (根目录下为原有测试脚本)
 - `templates/`: 模板文件 (如 Excel 导出模板)
 - `docs/`: 项目文档 (部署指南、SOP 等)
 
-## 🔧 环境配置
-
-请确保根目录下有 `.env` 文件，包含以下配置：
-- `ALGATOP_USER`: 账号
-- `ALGATOP_PASS`: 密码
-- `SUPABASE_URL`: 数据库地址
-- `SUPABASE_KEY`: 数据库秘钥
-
-## 🗄️ 数据库环境分流 (哥，看这里)
-
-系统通过 `ENV_MOD` 环境变量实现数据库的“一键切流”，逻辑位于 `core/final_pipeline.py`：
-
-1.  **生产环境 (Docker 模式)**：
-    -   **开关**：`ENV_MOD=production` (已在 `docker-compose.yml` 中默认配置)
-    -   **数据库**：使用 Docker 内部部署的 **PostgreSQL**。
-    -   **连接串**：由 `DATABASE_URL` 指定。
-    -   **特点**：数据全量存储在本地卷 `pgdata` 中，不依赖云端。
-
-2.  **开发环境 (Local 模式)**：
-    -   **开关**：`ENV_MOD=development` (默认值)
-    -   **数据库**：连接 **Supabase 云端**。
-    -   **配置**：从 `.env` 读取 `SUPABASE_URL` 和 `SUPABASE_KEY`。
+### 🗄️ 数据库环境分流 (开发/生产)
+系统支持通过 `ENV_MOD` 环境变量实现数据库的“一键切流”：
+1.  **开发环境 (Local)**: 默认连接 **Supabase 云端**，配置读取自 `.env`。
+2.  **生产环境 (Docker)**: 设置 `ENV_MOD=production`，连接容器内 **PostgreSQL**。
 
 > [!IMPORTANT]
-> **写入数据的归宿**：如果您在生产环境运行（Docker 中），数据会进入容器内的 PG；如果您在本地直接 `python` 运行脚本且没设环境变量，数据会尝试同步到 Supabase。
+> **写入数据的归宿**：在 Docker 中运行时，数据进入本地 PG；在本地直接运行脚本时，数据同步到 Supabase。
+
+---
+<div align="center">
+  <p>Made with ❤️ by the ProSourcing Team</p>
+</div>
