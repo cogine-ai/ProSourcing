@@ -3,7 +3,7 @@ import uuid
 import asyncio
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import create_client, Client
@@ -870,7 +870,7 @@ def get_kaspi_global_tree():
         return []
 
 @app.post('/api/kaspi/tasks/batch')
-def create_kaspi_tasks_batch(item_codes: list[str], background_tasks: BackgroundTasks):
+def create_kaspi_tasks_batch(item_codes: List[str] = Body(...), background_tasks: BackgroundTasks = BackgroundTasks()):
     from core.final_pipeline import supabase as sb
     
     total_requested = len(item_codes)
