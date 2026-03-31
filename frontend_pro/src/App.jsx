@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './index.css';
 import { PDL } from './lib/pdl';
 import { TASK_STATUS } from './constants';
@@ -188,6 +188,7 @@ const App = () => {
     const [reportTopCat, setReportTopCat] = useState('all');
     const [reportPage, setReportPage] = useState(1);
     const [totalTasks, setTotalTasks] = useState(0);
+    const reportListRef = useRef(null); // 哥，专门用来管列表滚动的
     const [viewLogId, setViewLogId] = useState(null);
     const [onlyHighQuality, setOnlyHighQuality] = useState(true);
     const [filterDays, setFilterDays] = useState(300);
@@ -723,7 +724,10 @@ const App = () => {
                             <div className="flex-1 flex flex-col min-h-0">
                                 {viewMode === 'list' ? (
                                     <>
-                                        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-8 pb-10">
+                                        <div 
+                                            ref={reportListRef}
+                                            className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-8 pb-10"
+                                        >
                                         {tasks.length === 0 ? (
                                             <div className="flex flex-col items-center justify-center py-20 opacity-30 grayscale gap-4">
                                                 <History size={48} />
@@ -864,8 +868,8 @@ const App = () => {
 
                                         </div>
 
-                                        {/* 分页导航 (Sticky at the bottom) */}
-                                        <div className="shrink-0 sticky bottom-0 bg-background/90 backdrop-blur-md border-t border-border/20 py-6 mt-4 z-20 flex items-center justify-between animate-in fade-in slide-in-from-bottom-4 duration-700 px-2">
+                                        {/* 分页导航 (Pinned at the bottom) */}
+                                        <div className="shrink-0 sticky bottom-0 bg-background/90 backdrop-blur-md border-t border-border/20 py-4 mt-2 z-[50] flex items-center justify-between px-2 pointer-events-auto">
                                             <div className="flex flex-col">
                                                 <p className="text-xs font-black text-foreground">
                                                     共 <span className="text-primary">{totalTasks}</span> 项报告 
@@ -876,15 +880,21 @@ const App = () => {
                                             <div className="flex gap-3">
                                                 <button 
                                                     disabled={reportPage === 1}
-                                                    onClick={() => { setReportPage(p => Math.max(1, p - 1)); window.scrollTo({top: 0, behavior: 'smooth'}); }}
-                                                    className="flex items-center justify-center w-32 py-3 bg-card border border-border rounded-xl hover:bg-accent hover:border-primary/50 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-sm active:scale-100"
+                                                    onClick={() => { 
+                                                        setReportPage(p => Math.max(1, p - 1)); 
+                                                        reportListRef.current?.scrollTo({top: 0, behavior: 'smooth'}); 
+                                                    }}
+                                                    className="flex items-center justify-center w-32 py-3 bg-card border border-border rounded-xl hover:bg-accent hover:border-primary/50 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-sm active:scale-95"
                                                 >
                                                     <ChevronLeft size={16} className="mr-1" /> 上一页
                                                 </button>
                                                 <button 
                                                     disabled={reportPage >= Math.ceil(totalTasks / 20)}
-                                                    onClick={() => { setReportPage(p => p + 1); window.scrollTo({top: 0, behavior: 'smooth'}); }}
-                                                    className="flex items-center justify-center w-32 py-3 bg-primary text-primary-foreground border border-primary rounded-xl hover:opacity-90 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-100"
+                                                    onClick={() => { 
+                                                        setReportPage(p => p + 1); 
+                                                        reportListRef.current?.scrollTo({top: 0, behavior: 'smooth'}); 
+                                                    }}
+                                                    className="flex items-center justify-center w-32 py-3 bg-primary text-primary-foreground border border-primary rounded-xl hover:opacity-90 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95"
                                                 >
                                                     下一页 <ChevronRight size={16} className="ml-1" />
                                                 </button>
@@ -1428,7 +1438,6 @@ const App = () => {
                                         </div>
                                     </div>
                                 )}
-                                {viewLogId && <LogViewer taskId={viewLogId} onClose={() => setViewLogId(null)} />}
                             </div>
                         )}
 
