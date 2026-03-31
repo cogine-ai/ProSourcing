@@ -43,8 +43,16 @@ python run_dev.py
 ### 📂 Project Structure
 - `api/`: Backend services (FastAPI)
 - `frontend_pro/`: Frontend application (Vite + React)
-- `core/`: Core logic and data pipelines
-- `output/`: Generated assets (JSON, Excel, Images)
+- `core/`: Core business logic (Scraper, Pipeline, Scoring)
+- `output/`: Unified output directory
+  - `excel/`: Final analysis reports (.xlsx)
+  - `json/`: Raw crawled data (.json)
+  - `images/`: Product image cache (.jpg)
+- `tests/`: Script library (Host to 100+ debug, diagnostic, and test scripts)
+  - `debug/`: Debugging scripts
+  - `tools/`: Utility and extraction tools
+- `templates/`: Template files (e.g., Excel export templates)
+- `docs/`: Project documentation (Deployment guides, SOPs, etc.)
 
 ### 🔧 Configuration
 Ensure a `.env` file exists in the root directory:
@@ -73,6 +81,20 @@ python run_dev.py
     ```powershell
     python core/rpa_final_pipeline.py
     ```
+
+### 📂 目录结构 
+- `api/`: 后端服务代码 (FastAPI)
+- `frontend_pro/`: 前端项目代码 (Vite + React)
+- `core/`: 核心业务逻辑 (Scraper, Pipeline, Scoring)
+- `output/`: 统一产出目录
+  - `excel/`: 最终生成的分析报表 (.xlsx)
+  - `json/`: 采集过程中的原始数据 (.json)
+  - `images/`: 商品首图缓存 (.jpg)
+- `tests/`: 脚本库 (安置 100+ 调试、诊断和测试脚本，干净清爽)
+  - `debug/`: 调试类
+  - `tools/`: 工具与提取类
+- `templates/`: 模板文件 (如 Excel 导出模板)
+- `docs/`: 项目文档 (部署指南、SOP 等)
 
 ### 🗄️ 数据库环境分流 (开发/生产)
 系统支持通过 `ENV_MOD` 环境变量实现数据库的“一键切流”：

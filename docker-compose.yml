@@ -12,11 +12,12 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+      - ./scripts/seed_data.sql:/docker-entrypoint-initdb.d/02_seed_data.sql
     restart: always
 
   backend:
-    image: prosourcing-backend:ultimate_fix
+    image: prosourcing-backend:v20260327
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -34,6 +35,7 @@ services:
       - ./logs:/app/logs
       - ./output:/app/output
       - ./tmp:/app/tmp
+      - ./scripts:/app/scripts
     depends_on:
       - db
     extra_hosts:
@@ -41,7 +43,7 @@ services:
     restart: always
 
   frontend:
-    image: prosourcing-frontend:latest
+    image: prosourcing-frontend:v20260327
     build:
       context: .
       dockerfile: Dockerfile.frontend

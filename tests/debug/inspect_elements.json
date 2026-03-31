@@ -1,0 +1,185 @@
+{
+  "links": [
+    {
+      "text": "",
+      "href": "/",
+      "className": "MuiButtonBase-root css-a3rsvo"
+    },
+    {
+      "text": "",
+      "href": "https://instagram.com/algatop/",
+      "className": ""
+    },
+    {
+      "text": "",
+      "href": "https://t.me/Algatop",
+      "className": ""
+    },
+    {
+      "text": "",
+      "href": "https://api.whatsapp.com/send/?phone=77784973056&text=%D0%A5%D0%BE%D1%87%D1%83+%D1%83%D0%B7%D0%BD%D0%B0%D1%82%D1%8C+%D0%BF%D0%BE%D0%B4%D1%80%D0%BE%D0%B1%D0%BD%D0%B5%D0%B5+%D0%BF%D1%80%D0%BE+%D0%BF%D0%BB%D0%B0%D1%82%D1%84%D0%BE%D1%80%D0%BC%D1%83+AlgaTop&type=phone_number&app_absent=0",
+      "className": ""
+    },
+    {
+      "text": "",
+      "href": "tel:+77784973056",
+      "className": ""
+    },
+    {
+      "text": "Тарифы и оплата",
+      "href": "/bills",
+      "className": "_MenuItemLink_336vy_12"
+    },
+    {
+      "text": "Главная",
+      "href": "/",
+      "className": "_MenuItemLink_336vy_12"
+    },
+    {
+      "text": "Бот",
+      "href": "/bot",
+      "className": "_MenuItemLink_336vy_12"
+    },
+    {
+      "text": "Статистика ваших продаж",
+      "href": "/analytics",
+      "className": "_MenuItemLink_336vy_12"
+    },
+    {
+      "text": "Поиск ниши",
+      "href": "/markets-analytics",
+      "className": "_MenuItemLink_336vy_12 _MenuItemLinkActive_336vy_23"
+    },
+    {
+      "text": "Рассылка для отзывов",
+      "href": "/ws-sender",
+      "className": "_MenuItemLink_336vy_12"
+    },
+    {
+      "text": "Рассылка для допродаж",
+      "href": "/ws-base-mail",
+      "className": "_MenuItemLink_336vy_12"
+    },
+    {
+      "text": "Накладные",
+      "href": "/invoices",
+      "className": "_MenuItemLink_336vy_12"
+    },
+    {
+      "text": "Лаборатория идей",
+      "href": "/idea",
+      "className": "_MenuItemLink_336vy_12"
+    },
+    {
+      "text": "Главная",
+      "href": "/",
+      "className": "_MenuItemLink_zhvmx_16"
+    },
+    {
+      "text": "Бот",
+      "href": "/bot",
+      "className": "_MenuItemLink_zhvmx_16"
+    },
+    {
+      "text": "Статистика ваших продаж",
+      "href": "/analytics",
+      "className": "_MenuItemLink_zhvmx_16"
+    },
+    {
+      "text": "Поиск ниши",
+      "href": "/markets-analytics",
+      "className": "_MenuItemLink_zhvmx_16 _MenuItemLinkActive_zhvmx_33"
+    },
+    {
+      "text": "Рассылка для отзывов",
+      "href": "/ws-sender",
+      "className": "_MenuItemLink_zhvmx_16"
+    },
+    {
+      "text": "Рассылка для допродаж",
+      "href": "/ws-base-mail",
+      "className": "_MenuItemLink_zhvmx_16"
+    },
+    {
+      "text": "Лаборатория идей",
+      "href": "/idea",
+      "className": "_MenuItemLink_zhvmx_16"
+    },
+    {
+      "text": "Накладные",
+      "href": "/invoices",
+      "className": "_MenuItemLink_zhvmx_16"
+    },
+    {
+      "text": "Телефон: +7 727 312 38 33",
+      "href": "tel:+77273123833",
+      "className": "MuiTypography-root MuiTypography-inherit MuiLink-root MuiLink-underlineAlways css-1fojw5b"
+    },
+    {
+      "text": "WhatsApp: +7 778 497 30 56",
+      "href": "https://api.whatsapp.com/send/?phone=77784973056&text=%D0%A5%D0%BE%D1%87%D1%83+%D1%83%D0%B7%D0%BD%D0%B0%D1%82%D1%8C+%D0%BF%D0%BE%D0%B4%D1%80%D0%BE%D0%B1%D0%BD%D0%B5%D0%B5+%D0%BF%D1%80%D0%BE+%D0%BF%D0%BB%D0%B0%D1%82%D1%84%D0%BE%D1%80%D0%BC%D1%83+AlgaTop&type=phone_number&app_absent=0",
+      "className": "MuiTypography-root MuiTypography-inherit MuiLink-root MuiLink-underlineAlways css-1fojw5b"
+    },
+    {
+      "text": "Telegram: @Algatop",
+      "href": "https://t.me/Algatop",
+      "className": "MuiTypography-root MuiTypography-inherit MuiLink-root MuiLink-underlineAlways css-1fojw5b"
+    }
+  ],
+  "toggles": [
+    {
+      "tag": "BUTTON",
+      "text": "KZ",
+      "className": "_LanguageSwitcher_eqdgt_1",
+      "style": null
+    },
+    {
+      "tag": "BUTTON",
+      "text": "",
+      "className": "MuiButtonBase-root MuiIconButton-root MuiIconButton-sizeMedium css-1dow036",
+      "style": null
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Обучающее видео",
+      "className": "MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-outlinedSecondary MuiButton-sizeMedium MuiButton-outlinedSizeMedium MuiButton-colorSecondary MuiButton-disableElevation MuiButton-root MuiButton-outlined MuiButton-outlinedSecondary MuiButton-sizeMedium MuiButton-outlinedSizeMedium MuiButton-colorSecondary MuiButton-disableElevation css-118gosd",
+      "style": null
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Обучающий тур",
+      "className": "MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-outlinedSecondary MuiButton-sizeMedium MuiButton-outlinedSizeMedium MuiButton-colorSecondary MuiButton-disableElevation MuiButton-root MuiButton-outlined MuiButton-outlinedSecondary MuiButton-sizeMedium MuiButton-outlinedSizeMedium MuiButton-colorSecondary MuiButton-disableElevation css-118gosd",
+      "style": null
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Инструкция",
+      "className": "MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-outlinedSecondary MuiButton-sizeMedium MuiButton-outlinedSizeMedium MuiButton-colorSecondary MuiButton-disableElevation MuiButton-root MuiButton-outlined MuiButton-outlinedSecondary MuiButton-sizeMedium MuiButton-outlinedSizeMedium MuiButton-colorSecondary MuiButton-disableElevation css-118gosd",
+      "style": null
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Купить",
+      "className": "MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary MuiButton-disableElevation MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary MuiButton-disableElevation _Buy_12yed_96 css-1lsuiz3",
+      "style": null
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Купить",
+      "className": "MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary MuiButton-disableElevation MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary MuiButton-disableElevation _Buy_12yed_96 css-1lsuiz3",
+      "style": null
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Купить",
+      "className": "MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary MuiButton-disableElevation MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary MuiButton-disableElevation _Buy_12yed_96 css-1lsuiz3",
+      "style": null
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Купить",
+      "className": "MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary MuiButton-disableElevation MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary MuiButton-disableElevation _Buy_12yed_96 css-1lsuiz3",
+      "style": null
+    }
+  ]
+}

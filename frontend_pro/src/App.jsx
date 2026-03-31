@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import './index.css';
 import { PDL } from './lib/pdl';
+import { TASK_STATUS } from './constants';
 import Breadcrumbs from './components/Breadcrumbs';
 import { KaspiTaskView } from './components/KaspiTaskView';
+import { SystemSettings } from './components/SystemSettings';
 import {
     LayoutDashboard,
     Target,
@@ -183,7 +185,16 @@ const App = () => {
     const [reportSearch, setReportSearch] = useState('');
     const [reportStatus, setReportStatus] = useState('all');
     const [reportTime, setReportTime] = useState('all');
+    const [reportTopCat, setReportTopCat] = useState('all');
+    const [reportPage, setReportPage] = useState(1);
+    const [totalTasks, setTotalTasks] = useState(0);
     const [viewLogId, setViewLogId] = useState(null);
+    const [onlyHighQuality, setOnlyHighQuality] = useState(true);
+    const [filterDays, setFilterDays] = useState(300);
+    const [filterSales, setFilterSales] = useState(60);
+    const [filterReviews, setFilterReviews] = useState(15);
+    const [filterMinPrice, setFilterMinPrice] = useState(800);
+    const [sortBy, setSortBy] = useState('amount');
 
     // Helper to format ISO date to YYYY.MM.DD HH:mm:ss
     const formatDateTime = (iso) => {
@@ -266,14 +277,16 @@ const App = () => {
     // Helper for status colors
     const getStatusColor = (status) => {
         switch (status) {
-            case 'completed': return 'border-emerald-600/50 text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-600 dark:text-emerald-400';
-            case 'pending':
+            case TASK_STATUS.COMPLETED: return 'border-emerald-600/50 text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-400';
+            case TASK_STATUS.PENDING:
             case 'running':
             case 'crawling':
             case 'reporting':
-            case 'processing': return 'border-amber-600/50 text-amber-600 dark:border-amber-400/50 dark:text-amber-400';
-            case 'failed':
+            case 'processing':
+            case TASK_STATUS.SCRAPING: return 'border-amber-600/50 text-amber-600 dark:border-amber-400/50 dark:text-amber-400';
+            case TASK_STATUS.FAILED:
             case 'error': return 'border-rose-600/50 text-rose-600 dark:border-rose-400/50 dark:text-rose-400';
+            case TASK_STATUS.RETRYING: return 'border-blue-600/50 text-blue-600 dark:border-blue-400/50 dark:text-blue-400';
             default: return 'border-muted-foreground/50 text-muted-foreground';
         }
     };
@@ -329,12 +342,12 @@ const App = () => {
     useEffect(() => {
         fetchTopStats();
         fetchGlobalStats();
-        fetchHistory();
+        fetchHistory(reportPage, reportSearch, reportTime, reportStatus, reportTopCat);
         fetchAllCategories();
-        const interval = setInterval(fetchHistory, 5000);
+        const interval = setInterval(() => fetchHistory(reportPage, reportSearch, reportTime, reportStatus, reportTopCat), 5000);
         fetchAlgoConfig();
         return () => clearInterval(interval);
-    }, []);
+    }, [reportPage, reportSearch, reportTime, reportStatus, reportTopCat]);
 
     const fetchAlgoConfig = async () => {
         try {
@@ -399,12 +412,33 @@ const App = () => {
         } catch (err) { console.error("Fetch all categories failed", err); }
     };
 
-    const fetchHistory = async () => {
+    const fetchHistory = async (page = reportPage, q = reportSearch, time = reportTime, status = reportStatus, topCat = reportTopCat) => {
         try {
-            const res = await fetch(`${API_BASE}/api/tasks/history`);
-            let data = await res.json();
+            const url = new URL(`${API_BASE}/api/tasks/history`);
+            url.searchParams.append('page', page);
+            url.searchParams.append('page_size', 20);
+            if (q) url.searchParams.append('q', q);
+            
+            // 哥，转换时间过滤为天数
+            if (time !== 'all') {
+                let days = 0;
+                if (time === '7d') days = 7;
+                else if (time === '30d') days = 30;
+                else if (time === 'this_month') {
+                    const today = new Date();
+                    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+                    days = Math.floor((today - firstDay) / (1000 * 60 * 60 * 24)) + 1;
+                }
+                if (days > 0) url.searchParams.append('days', days);
+            }
+            if (status !== 'all') url.searchParams.append('status', status);
+            if (topCat !== 'all') url.searchParams.append('top_category', topCat);
+            
+            const res = await fetch(url);
+            const data = await res.json();
 
-            setTasks(data);
+            setTasks(data.data || []);
+            setTotalTasks(data.total || 0);
         } catch (err) { console.error("Fetch history failed", err); }
     };
 
@@ -439,6 +473,16 @@ const App = () => {
             }
         } catch (error) { console.error("Create task failed", error); }
     };
+    
+    const handleRetryTask = async (taskId) => {
+        try {
+            const res = await fetch(`${API_BASE}/api/tasks/${taskId}/retry`, { method: 'POST' });
+            if (res.ok) {
+                alert('任务已重新加入采集队列！');
+                fetchHistory();
+            }
+        } catch (e) { console.error("Retry task failed", e); }
+    };
 
     const handleToggleLeaf = (leafId) => {
         setSelectedCats(prev =>
@@ -463,18 +507,21 @@ const App = () => {
         if (selectedCats.length === 0) return;
         setLoading(true);
 
-        const allKnownLeaves = categories.flatMap(c => c.leaves || []);
-
-        for (const catId of selectedCats) {
-            const leaf = allKnownLeaves.find(l => l.category_id === catId);
-            const targetName = leaf ? leaf.category_name : catId;
-
-            await fetch(`${API_BASE}/api/tasks/category`, {
+        try {
+            const res = await fetch(`${API_BASE}/api/kaspi/tasks/batch`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ category: targetName })
+                body: JSON.stringify(selectedCats)
             });
-        }
+            const data = await res.json();
+            if (data.success || data.status === 'success') {
+                const total = data.total_requested || selectedCats.length;
+                const filtered = data.filtered_duplicate || 0;
+                const actual = data.actual_executed || (data.tasks ? data.tasks.length : 0);
+                alert(`本次发起 ${total} 个任务，已存在/过滤 ${filtered} 个，实际新执行 ${actual} 个并发采集任务。`);
+            }
+        } catch(e) { console.error('Batch error', e); }
+
         setSelectedCats([]);
         setLoading(false);
         fetchHistory();
@@ -594,6 +641,47 @@ const App = () => {
                                             保存配置
                                         </button>
                                     </>
+                                ) : activeTab === 'archives' && viewMode === 'list' ? (
+                                    <div className="flex gap-4 items-center animate-in fade-in slide-in-from-right-4 duration-500">
+                                        <div className="relative group">
+                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" size={16} />
+                                            <input 
+                                                type="text" 
+                                                placeholder="搜索品类报告..." 
+                                                value={reportSearch}
+                                                onChange={e => { setReportSearch(e.target.value); setReportPage(1); }}
+                                                className="pl-10 pr-4 py-2.5 bg-card/50 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/10 w-64 transition-all hover:border-primary/30"
+                                            />
+                                        </div>
+                                        <select 
+                                            value={reportTime}
+                                            onChange={e => { setReportTime(e.target.value); setReportPage(1); }}
+                                            className="bg-card/50 border border-border rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-widest focus:outline-none appearance-none cursor-pointer hover:border-primary/30 transition-all min-w-[140px]"
+                                        >
+                                            <option value="all">全部时间历史</option>
+                                            <option value="7d">最近 7 天内</option>
+                                            <option value="30d">最近 30 天内</option>
+                                            <option value="this_month">本月报告</option>
+                                        </select>
+                                        <select 
+                                            value={reportStatus}
+                                            onChange={e => { setReportStatus(e.target.value); setReportPage(1); }}
+                                            className="bg-card/50 border border-border rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-widest focus:outline-none appearance-none cursor-pointer hover:border-primary/30 transition-all min-w-[120px]"
+                                        >
+                                            <option value="all">全部状态</option>
+                                            <option value="completed">已完成</option>
+                                            <option value="pending">执行中</option>
+                                            <option value="failed">错误失败</option>
+                                        </select>
+                                        <select 
+                                            value={reportTopCat}
+                                            onChange={e => { setReportTopCat(e.target.value); setReportPage(1); }}
+                                            className="bg-card/50 border border-border rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-widest focus:outline-none appearance-none cursor-pointer hover:border-primary/30 transition-all min-w-[120px]"
+                                        >
+                                            <option value="all">全部分类</option>
+                                            {categories.map(c => <option key={c.category_id} value={c.name_cn || c.name_ru}>{c.name_cn || c.name_ru}</option>)}
+                                        </select>
+                                    </div>
                                 ) : null}
                             />
                         )}
@@ -632,9 +720,10 @@ const App = () => {
 
                         {/* --- 视图：选品报告 --- */}
                         {activeTab === 'archives' && (
-                            <div className={`flex-1 flex flex-col min-h-0 ${viewMode === 'list' ? 'overflow-y-auto custom-scrollbar pr-2' : ''}`}>
+                            <div className="flex-1 flex flex-col min-h-0">
                                 {viewMode === 'list' ? (
-                                    <div className="space-y-8">
+                                    <>
+                                        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-8 pb-10">
                                         {tasks.length === 0 ? (
                                             <div className="flex flex-col items-center justify-center py-20 opacity-30 grayscale gap-4">
                                                 <History size={48} />
@@ -642,30 +731,10 @@ const App = () => {
                                             </div>
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                                                {tasks
-                                                    .filter(task => {
-                                                        const matchesSearch = task.category?.toLowerCase().includes(reportSearch.toLowerCase());
-                                                        const matchesStatus = reportStatus === 'all' || task.status === reportStatus;
-
-                                                        let matchesTime = true;
-                                                        if (reportTime !== 'all') {
-                                                            const taskTime = new Date(task.created_at).getTime();
-                                                            const now = Date.now();
-                                                            if (reportTime === '7d') matchesTime = taskTime > now - 7 * 24 * 60 * 60 * 1000;
-                                                            else if (reportTime === '30d') matchesTime = taskTime > now - 30 * 24 * 60 * 60 * 1000;
-                                                            else if (reportTime === 'this_month') {
-                                                                const today = new Date();
-                                                                const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).getTime();
-                                                                matchesTime = taskTime > firstDay;
-                                                            }
-                                                        }
-
-                                                        return matchesSearch && matchesStatus && matchesTime;
-                                                    })
-                                                    .map((task) => {
-                                                        const isCompleted = task.status === 'completed';
-                                                        const isFailed = task.status === 'failed';
-                                                        const isRunning = !isCompleted && !isFailed;
+                                                {tasks.map((task) => {
+                                                        const isCompleted = task.status === TASK_STATUS.COMPLETED;
+                                                        const isFailed = task.status === TASK_STATUS.FAILED;
+                                                        const isRunning = !isCompleted && !isFailed && task.status !== TASK_STATUS.RETRYING;
 
                                                         return (
                                                             <div
@@ -681,11 +750,18 @@ const App = () => {
                                                                 {/* Header */}
                                                                 <div className="flex justify-between items-start mb-4 border-b border-border/40 pb-3">
                                                                     <div className="pr-3 flex-1 min-w-0">
-                                                                        <h4 className="font-black text-foreground text-xl truncate" title={task.category}>
+                                                                        <h4 className="font-black text-foreground text-xl truncate flex items-center gap-2" title={task.category}>
                                                                             {getCategoryDisplayName(task)}
+                                                                            {task.up_categories && typeof task.up_categories !== 'string' && task.up_categories.length > 0 && (
+                                                                                <span className="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[10px] uppercase font-bold tracking-widest rounded-md shrink-0">
+                                                                                    {getCategoryDisplayName(task.up_categories[0]) || '一级类目'}
+                                                                                </span>
+                                                                            )}
                                                                         </h4>
-                                                                        <p className="text-xs text-muted-foreground mt-1 tracking-tight truncate">
-                                                                            {formatDateTime(task.created_at)}
+                                                                        <p className="text-xs text-muted-foreground mt-2 tracking-tight truncate flex items-center gap-2">
+                                                                            <span className="w-1.5 h-1.5 bg-muted-foreground/30 rounded-full"></span>
+                                                                            {formatDateTime(task.updated_at || task.created_at)}
+                                                                            {task.updated_at && <span className="ml-1 text-[9px] font-bold tracking-widest uppercase border px-1 rounded-sm border-muted/50 text-muted-foreground/50">Updated</span>}
                                                                         </p>
                                                                     </div>
                                                                     <div className="shrink-0 ml-2 flex flex-col items-end gap-1">
@@ -710,7 +786,7 @@ const App = () => {
                                                                             <>
                                                                                 <div className={`px-3 py-1 font-black text-xs opacity-80 uppercase rounded-md tracking-widest border-2 mb-0.5 ${getStatusColor(task.status)}`}>失败</div>
                                                                                 <div className="flex gap-2">
-                                                                                    <button className="text-[10px] font-bold text-muted-foreground hover:text-rose-500 transition-colors tracking-widest uppercase" onClick={(e) => e.stopPropagation()}>重试</button>
+                                                                                    <button className="text-[10px] font-bold text-muted-foreground hover:text-rose-500 transition-colors tracking-widest uppercase" onClick={(e) => { e.stopPropagation(); handleRetryTask(task.id); }}>重试</button>
                                                                                     <button
                                                                                         className="text-[10px] font-bold text-muted-foreground hover:text-primary transition-colors tracking-widest uppercase"
                                                                                         onClick={(e) => { e.stopPropagation(); setViewLogId(task.id); }}
@@ -728,8 +804,8 @@ const App = () => {
                                                                     <div className="flex-1 flex flex-col justify-center">
                                                                         <div className="grid grid-cols-3 gap-2 mt-4 text-center divide-x divide-border/40">
                                                                             <div className="flex flex-col px-1">
-                                                                                <span className="text-[10px] text-muted-foreground mb-1 font-bold">产品总数</span>
-                                                                                <span className="text-xl font-black text-foreground">{task.category_stats?.sale_product_qty || '--'}</span>
+                                                                                <span className="text-[10px] text-muted-foreground mb-1 font-bold">产品总数/有效数</span>
+                                                                                <span className="text-xl font-black text-foreground">{task.category_stats?.sale_product_qty || '--'} / <span className="text-primary">{task.category_stats?.valid_product_count || '--'}</span></span>
                                                                             </div>
                                                                             <div className="flex flex-col px-1">
                                                                                 <span className="text-[10px] text-muted-foreground mb-1 font-bold">类目销量</span>
@@ -756,28 +832,14 @@ const App = () => {
                                                                                     {task.status === 'pending' ? '等待资源分配...' : '正在提取数据...'}
                                                                                 </span>
                                                                                 <span className="text-muted-foreground font-mono text-[10px]">
-                                                                                    {(() => {
-                                                                                        // 动态进度模拟：基于创建时间
-                                                                                        const start = new Date(task.created_at).getTime();
-                                                                                        const now = Date.now();
-                                                                                        const elapsedSeconds = (now - start) / 1000;
-                                                                                        // 假设 3 分钟跑完，前 90% 缓慢爬升
-                                                                                        const pseudoProgress = Math.min(95, Math.floor(elapsedSeconds / 180 * 95));
-                                                                                        return Math.max(5, pseudoProgress) + '%';
-                                                                                    })()}
+                                                                                    {task.progress || 0}%
                                                                                 </span>
                                                                             </div>
                                                                             <div className="w-full bg-muted rounded-full h-2 overflow-hidden mb-1">
                                                                                 <div
                                                                                     className="bg-primary h-2 rounded-full transition-all duration-1000 animate-[pulse_2s_ease-in-out_infinite]"
                                                                                     style={{
-                                                                                        width: (() => {
-                                                                                            const start = new Date(task.created_at).getTime();
-                                                                                            const now = Date.now();
-                                                                                            const elapsedSeconds = (now - start) / 1000;
-                                                                                            const pseudoProgress = Math.min(95, Math.floor(elapsedSeconds / 180 * 95));
-                                                                                            return Math.max(5, pseudoProgress) + '%';
-                                                                                        })()
+                                                                                        width: `${task.progress || 0}%`
                                                                                     }}
                                                                                 ></div>
                                                                             </div>
@@ -799,7 +861,37 @@ const App = () => {
                                                     })}
                                             </div>
                                         )}
-                                    </div>
+
+                                        </div>
+
+                                        {/* 分页导航 (Sticky at the bottom) */}
+                                        <div className="shrink-0 sticky bottom-0 bg-background/90 backdrop-blur-md border-t border-border/20 py-6 mt-4 z-20 flex items-center justify-between animate-in fade-in slide-in-from-bottom-4 duration-700 px-2">
+                                            <div className="flex flex-col">
+                                                <p className="text-[10px] font-bold text-muted-foreground/40 uppercase tracking-[0.2em] mb-1">Pagination Control</p>
+                                                <p className="text-xs font-black text-foreground">
+                                                    Showing <span className="text-primary">{tasks.length}</span> of <span className="text-primary">{totalTasks}</span> items 
+                                                    <span className="mx-3 text-muted-foreground/20">|</span> 
+                                                    Page {reportPage} / {Math.ceil(totalTasks / 20) || 1}
+                                                </p>
+                                            </div>
+                                            <div className="flex gap-3">
+                                                <button 
+                                                    disabled={reportPage === 1}
+                                                    onClick={() => { setReportPage(p => Math.max(1, p - 1)); window.scrollTo({top: 0, behavior: 'smooth'}); }}
+                                                    className="flex items-center justify-center w-32 py-3 bg-card border border-border rounded-xl hover:bg-accent hover:border-primary/50 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-sm active:scale-95"
+                                                >
+                                                    <ChevronLeft size={16} className="mr-1" /> Previous
+                                                </button>
+                                                <button 
+                                                    disabled={reportPage >= Math.ceil(totalTasks / 20)}
+                                                    onClick={() => { setReportPage(p => p + 1); window.scrollTo({top: 0, behavior: 'smooth'}); }}
+                                                    className="flex items-center justify-center w-32 py-3 bg-primary text-primary-foreground border border-primary rounded-xl hover:opacity-90 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95"
+                                                >
+                                                    Next <ChevronRight size={16} className="ml-1" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </>
                                 ) : (
                                     /* --- 内部详情页视图 (填满内容区) --- */
                                     <div className={`bg-card border border-border ${PDL.radius.card} rounded-card-force shadow-xl flex flex-col overflow-hidden animate-in slide-in-from-right-4 duration-500 flex-1`}>
@@ -871,10 +963,94 @@ const App = () => {
 
                                                             {/* --- 左侧栏：商品详情列表 (占 2 份宽度) --- */}
                                                             <div className="lg:col-span-2 space-y-4 max-h-[calc(100vh-280px)] overflow-y-auto pr-2 custom-scrollbar pb-6">
+                                                                {/* 哥，这是 100% 还原下午版本的筛选与排序工具条 */}
+                                                                <div className="bg-muted/10 border border-border/40 rounded-xl p-3 mb-6 flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-500">
+                                                                    <div className="flex items-center gap-6">
+                                                                        <div className="flex items-center gap-3 pr-4 border-r border-border/40">
+                                                                            <div 
+                                                                                onClick={() => setOnlyHighQuality(!onlyHighQuality)}
+                                                                                className={`w-10 h-5 rounded-full relative transition-all cursor-pointer ${onlyHighQuality ? 'bg-orange-500' : 'bg-muted-foreground/30'}`}
+                                                                            >
+                                                                                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${onlyHighQuality ? 'left-[22px]' : 'left-0.5'}`} />
+                                                                            </div>
+                                                                            <span className="text-xs font-black text-foreground/80 whitespace-nowrap">潜力优质商品挑选</span>
+                                                                        </div>
+                                                                        
+                                                                        <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span>天数 &lt;</span>
+                                                                                <input type="number" value={filterDays} onChange={e => setFilterDays(Number(e.target.value))} className="bg-transparent border-b border-border/40 text-emerald-500 w-10 text-center focus:outline-none focus:border-primary" />
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span>销量 &gt;</span>
+                                                                                <input type="number" value={filterSales} onChange={e => setFilterSales(Number(e.target.value))} className="bg-transparent border-b border-border/40 text-emerald-500 w-10 text-center focus:outline-none focus:border-primary" />
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span>评论 &gt;</span>
+                                                                                <input type="number" value={filterReviews} onChange={e => setFilterReviews(Number(e.target.value))} className="bg-transparent border-b border-border/40 text-emerald-500 w-10 text-center focus:outline-none focus:border-primary" />
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span>价格 &gt;</span>
+                                                                                <input type="number" value={filterMinPrice} onChange={e => setFilterMinPrice(Number(e.target.value))} className="bg-transparent border-b border-border/40 text-emerald-500 w-16 text-center focus:outline-none focus:border-primary" />
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="flex items-center gap-6">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">排序:</span>
+                                                                            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-transparent border-none text-[11px] font-black focus:outline-none cursor-pointer text-foreground uppercase tracking-wider">
+                                                                                <option value="amount">月销金额降序</option>
+                                                                                <option value="sales">月销量降序</option>
+                                                                                <option value="days_desc">上架时间降序</option>
+                                                                                <option value="score">系统得分降序</option>
+                                                                            </select>
+                                                                        </div>
+                                                                        <div className="text-[10px] font-bold text-muted-foreground/40 whitespace-nowrap border-l border-border/40 pl-6 uppercase tracking-tighter">
+                                                                            共计 <span className="text-primary">{taskProducts.filter(tp => {
+                                                                                if (!onlyHighQuality) return true;
+                                                                                const raw = tp.products_raw_data;
+                                                                                const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
+                                                                                return listedDays <= filterDays && (raw.sale_qty || 0) >= filterSales && (raw.review_qty || 0) >= filterReviews && (raw.sale_price || 0) >= filterMinPrice;
+                                                                            }).length}</span> 个商品 / 总数 {taskProducts.length}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
                                                                 {taskProducts.length === 0 ? (
                                                                     <div className="p-10 text-center text-muted-foreground text-sm border border-dashed border-border/50 rounded-xl">无样本商品数据</div>
                                                                 ) : (
-                                                                    taskProducts.map((tp, idx) => {
+                                                                    taskProducts
+                                                                        .filter(tp => {
+                                                                            if (!onlyHighQuality) return true;
+                                                                            const raw = tp.products_raw_data;
+                                                                            const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
+                                                                            return listedDays <= filterDays && (raw.sale_qty || 0) >= filterSales && (raw.review_qty || 0) >= filterReviews && (raw.sale_price || 0) >= filterMinPrice;
+                                                                        })
+                                                                        .sort((a, b) => {
+                                                                            const ra = a.products_raw_data;
+                                                                            const rb = b.products_raw_data;
+                                                                            if (sortBy === 'amount') return (rb.sale_amount || 0) - (ra.sale_amount || 0);
+                                                                            if (sortBy === 'sales') return (rb.sale_qty || 0) - (ra.sale_qty || 0);
+                                                                            if (sortBy === 'days_desc') {
+                                                                                const da = ra.created_dt ? new Date(ra.created_dt.split('.')[0].replace(' ', 'T')).getTime() : 0;
+                                                                                const db = rb.created_dt ? new Date(rb.created_dt.split('.')[0].replace(' ', 'T')).getTime() : 0;
+                                                                                return da - db; // 时间值越小(越老)越靠前 = 降序？不对，上架时间降序应该是天数大的在前面，即时间小的在前面。
+                                                                                // 天数 = Now - Created. 天数降序 = 时间小(老)的在前。
+                                                                            }
+                                                                            // Default: score
+                                                                            const getScore = (tp) => {
+                                                                                const raw = tp.products_raw_data;
+                                                                                const ld = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
+                                                                                return getMetricScore('monthly_sales', raw.sale_qty || 0) +
+                                                                                       getMetricScore('reviews', raw.review_qty || 0) +
+                                                                                       getMetricScore('price', raw.sale_price || 0) +
+                                                                                       getMetricScore('days_per_review', ld, raw.review_qty || 0) +
+                                                                                       getMetricScore('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0);
+                                                                            };
+                                                                            return getScore(b) - getScore(a);
+                                                                        })
+                                                                        .map((tp, idx) => {
                                                                         const raw = tp.products_raw_data;
 
                                                                         // Extract create date safely
@@ -1103,7 +1279,61 @@ const App = () => {
                                                     </div>
                                                 ) : (
                                                     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-                                                        <div className="mb-2"></div>
+                                                        {/* 哥，这是同步到 Raw Tab 的筛选与排序工具条 */}
+                                                        <div className="bg-muted/10 border border-border/40 rounded-xl p-3 mb-4 flex items-center justify-between">
+                                                            <div className="flex items-center gap-6">
+                                                                <div className="flex items-center gap-3 pr-4 border-r border-border/40">
+                                                                    <div 
+                                                                        onClick={() => setOnlyHighQuality(!onlyHighQuality)}
+                                                                        className={`w-10 h-5 rounded-full relative transition-all cursor-pointer ${onlyHighQuality ? 'bg-orange-500' : 'bg-muted-foreground/30'}`}
+                                                                    >
+                                                                        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${onlyHighQuality ? 'left-[22px]' : 'left-0.5'}`} />
+                                                                    </div>
+                                                                    <span className="text-xs font-black text-foreground/80 whitespace-nowrap">潜力优质商品挑选</span>
+                                                                </div>
+                                                                
+                                                                <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span>天数 &lt;</span>
+                                                                        <input type="number" value={filterDays} onChange={e => setFilterDays(Number(e.target.value))} className="bg-transparent border-b border-border/40 text-emerald-500 w-10 text-center focus:outline-none focus:border-primary" />
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span>销量 &gt;</span>
+                                                                        <input type="number" value={filterSales} onChange={e => setFilterSales(Number(e.target.value))} className="bg-transparent border-b border-border/40 text-emerald-500 w-10 text-center focus:outline-none focus:border-primary" />
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span>评论 &gt;</span>
+                                                                        <input type="number" value={filterReviews} onChange={e => setFilterReviews(Number(e.target.value))} className="bg-transparent border-b border-border/40 text-emerald-500 w-10 text-center focus:outline-none focus:border-primary" />
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span>价格 &gt;</span>
+                                                                        <input type="number" value={filterMinPrice} onChange={e => setFilterMinPrice(Number(e.target.value))} className="bg-transparent border-b border-border/40 text-emerald-500 w-16 text-center focus:outline-none focus:border-primary" />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-6">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">排序:</span>
+                                                                    <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-transparent border-none text-[11px] font-black focus:outline-none cursor-pointer text-foreground uppercase tracking-wider">
+                                                                        <option value="amount">月销售额降序</option>
+                                                                        <option value="score">系统总得分降序</option>
+                                                                        <option value="sales">销量优先降序</option>
+                                                                        <option value="price_asc">价格最低升序</option>
+                                                                        <option value="reviews">评论数量降序</option>
+                                                                        <option value="days_asc">新品优先</option>
+                                                                    </select>
+                                                                </div>
+                                                                <div className="text-[10px] font-bold text-muted-foreground/40 whitespace-nowrap border-l border-border/40 pl-6 uppercase tracking-tighter">
+                                                                    共计 <span className="text-primary">{taskProducts.filter(tp => {
+                                                                        if (!onlyHighQuality) return true;
+                                                                        const raw = tp.products_raw_data;
+                                                                        const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
+                                                                        return listedDays <= filterDays && (raw.sale_qty || 0) >= filterSales && (raw.review_qty || 0) >= filterReviews && (raw.sale_price || 0) >= filterMinPrice;
+                                                                    }).length}</span> 个商品 / 总数 {taskProducts.length}
+                                                                </div>
+                                                            </div>
+                                                        </div>
 
                                                         <div className="bg-card border border-border rounded-xl shadow-sm overflow-x-auto custom-scrollbar">
                                                             <table className="w-full text-left text-sm min-w-[1200px]">
@@ -1122,7 +1352,37 @@ const App = () => {
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-border/20">
-                                                                    {taskProducts.map((tp, idx) => {
+                                                                    {taskProducts
+                                                                        .filter(tp => {
+                                                                            if (!onlyHighQuality) return true;
+                                                                            const raw = tp.products_raw_data;
+                                                                            const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
+                                                                            return listedDays <= filterDays && (raw.sale_qty || 0) >= filterSales && (raw.review_qty || 0) >= filterReviews && (raw.sale_price || 0) >= filterMinPrice;
+                                                                        })
+                                                                        .sort((a, b) => {
+                                                                            const ra = a.products_raw_data;
+                                                                            const rb = b.products_raw_data;
+                                                                            if (sortBy === 'amount') return (rb.sale_amount || 0) - (ra.sale_amount || 0);
+                                                                            if (sortBy === 'sales') return (rb.sale_qty || 0) - (ra.sale_qty || 0);
+                                                                            if (sortBy === 'days_desc') {
+                                                                                const da = ra.created_dt ? new Date(ra.created_dt.split('.')[0].replace(' ', 'T')).getTime() : 0;
+                                                                                const db = rb.created_dt ? new Date(rb.created_dt.split('.')[0].replace(' ', 'T')).getTime() : 0;
+                                                                                return da - db; // 时间值越小(越老)越靠前 = 降序？不对，上架时间降序应该是天数大的在前面，即时间小的在前面。
+                                                                                // 天数 = Now - Created. 天数降序 = 时间小(老)的在前。
+                                                                            }
+                                                                            // Default: score (哥，这里也用同样的评分函数)
+                                                                            const getScore = (tp) => {
+                                                                                const raw = tp.products_raw_data;
+                                                                                const ld = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
+                                                                                return getMetricScore('monthly_sales', raw.sale_qty || 0) +
+                                                                                       getMetricScore('reviews', raw.review_qty || 0) +
+                                                                                       getMetricScore('price', raw.sale_price || 0) +
+                                                                                       getMetricScore('days_per_review', ld, raw.review_qty || 0) +
+                                                                                       getMetricScore('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0);
+                                                                            };
+                                                                            return getScore(b) - getScore(a);
+                                                                        })
+                                                                        .map((tp, idx) => {
                                                                         const raw = tp.products_raw_data;
                                                                         const mainImg = raw.preview_image_list ? JSON.parse(raw.preview_image_list)[0]?.medium : "https://via.placeholder.com/150";
 
@@ -1255,26 +1515,7 @@ const App = () => {
                         {/* --- 视图：系统管理 --- */}
                         {activeTab === 'settings' && (
                             <div className={`${PDL.spacing.section} flex-1 overflow-y-auto custom-scrollbar pr-2`}>
-                                <div className={`bg-card ${PDL.radius.card} border border-border shadow-md overflow-hidden divide-y divide-border/10`}>
-                                    {[
-                                        { name: "哥 (Master Admin)", role: "root_access", email: "yj@prosourcing.ai", initial: "Y" }
-                                    ].map((user, i) => (
-                                        <div key={i} className={`p-8 flex items-center gap-8 group hover:bg-muted/5 transition-colors`}>
-                                            <div className={`w-16 h-16 ${PDL.radius.inner} bg-primary text-primary-foreground flex items-center justify-center text-2xl font-black shadow-lg shadow-primary/10 transition-transform group-hover:scale-105`}>{user.initial}</div>
-                                            <div className="flex-1 space-y-2">
-                                                <h4 className="text-lg font-black text-foreground">{user.name}</h4>
-                                                <div className="flex gap-3">
-                                                    <span className={`${PDL.typography.label} bg-muted/30 px-3 py-1 rounded-full border border-border text-muted-foreground capitalize`}>{user.role}</span>
-                                                    <span className={`${PDL.typography.label} bg-muted/30 px-3 py-1 rounded-full border border-border text-muted-foreground lowercase`}>{user.email}</span>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-3 px-5 py-2 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-[10px] font-black uppercase tracking-widest">
-                                                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
-                                                Active
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
+                                <SystemSettings />
                             </div>
                         )}
                     </div>

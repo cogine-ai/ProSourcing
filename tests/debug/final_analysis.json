@@ -1,0 +1,149 @@
+{
+  "market_stats": {
+    "avg_price": 4310.9,
+    "product_count": 10,
+    "potential_level": "Medium"
+  },
+  "products": [
+    {
+      "title": "LARKO yogablue1 183х61x0.8 см голубой",
+      "url": "/shop/p/larko-yogablue1-183h61x0-8-sm-goluboi-112843262/?c=750000000",
+      "sku": "112843262",
+      "price": "6 999 ₸",
+      "reviews": "0",
+      "scores": {
+        "sales_score": 0,
+        "reviews_score": 0.5,
+        "price_score": 1,
+        "days_per_review_score": 0
+      },
+      "total_score": 1.5
+    },
+    {
+      "title": "Ab Коврики доя йоги 183х61х0.6 см розовый",
+      "url": "/shop/p/ab-kovriki-doja-iogi-183h61h0-6-sm-rozovyi-131265421/?c=750000000",
+      "sku": "131265421",
+      "price": "3 989 ₸",
+      "reviews": "0",
+      "scores": {
+        "sales_score": 0,
+        "reviews_score": 0.5,
+        "price_score": 1,
+        "days_per_review_score": 0
+      },
+      "total_score": 1.5
+    },
+    {
+      "title": "LARKO yogapurple1 183х61x0.6 см розовый",
+      "url": "/shop/p/larko-yogapurple1-183h61x0-6-sm-rozovyi-112843341/?c=750000000",
+      "sku": "112843341",
+      "price": "6 999 ₸",
+      "reviews": "0",
+      "scores": {
+        "sales_score": 0,
+        "reviews_score": 0.5,
+        "price_score": 1,
+        "days_per_review_score": 0
+      },
+      "total_score": 1.5
+    },
+    {
+      "title": "Ab Коврик 183х61х0.6 см розовый",
+      "url": "/shop/p/ab-kovrik-183h61h0-6-sm-rozovyi-131142684/?c=750000000",
+      "sku": "131142684",
+      "price": "7 339 ₸",
+      "reviews": "0",
+      "scores": {
+        "sales_score": 0,
+        "reviews_score": 0.5,
+        "price_score": 1,
+        "days_per_review_score": 0
+      },
+      "total_score": 1.5
+    },
+    {
+      "title": "Yoga Mat 85 183x61x0.6 см голубой",
+      "url": "/shop/p/yoga-mat-85-183x61x0-6-sm-goluboi-107167936/?c=750000000",
+      "sku": "107167936",
+      "price": "6 279 ₸",
+      "reviews": "0",
+      "scores": {
+        "sales_score": 0,
+        "reviews_score": 0.5,
+        "price_score": 1,
+        "days_per_review_score": 0
+      },
+      "total_score": 1.5
+    },
+    {
+      "title": "Коврик для йоги и фитнеса нескользящий 183х61 фиолетовый",
+      "url": "/shop/p/kovrik-dlja-iogi-i-fitnesa-neskol-zjaschii-183h61-fioletovyi-134193498/?c=750000000",
+      "sku": "134193498",
+      "price": "2 449 ₸",
+      "reviews": "0",
+      "scores": {
+        "sales_score": 0,
+        "reviews_score": 0.5,
+        "price_score": 0.5,
+        "days_per_review_score": 0
+      },
+      "total_score": 1.0
+    },
+    {
+      "title": "Yoga Mat двусторонний 183x60x0.4 см розовый",
+      "url": "/shop/p/yoga-mat-dvustoronnii-183x60x0-4-sm-rozovyi-100710438/?c=750000000",
+      "sku": "100710438",
+      "price": "2 149 ₸",
+      "reviews": "0",
+      "scores": {
+        "sales_score": 0,
+        "reviews_score": 0.5,
+        "price_score": 0.5,
+        "days_per_review_score": 0
+      },
+      "total_score": 1.0
+    },
+    {
+      "title": "Ab Коврики для цоги 183*61*0.6 синий",
+      "url": "/shop/p/ab-kovriki-dlja-tsogi-183-61-0-6-sinii-130005162/?c=750000000",
+      "sku": "130005162",
+      "price": "2 427 ₸",
+      "reviews": "0",
+      "scores": {
+        "sales_score": 0,
+        "reviews_score": 0.5,
+        "price_score": 0.5,
+        "days_per_review_score": 0
+      },
+      "total_score": 1.0
+    },
+    {
+      "title": "100010 183x61x0.6 см фиолетовый",
+      "url": "/shop/p/100010-183x61x0-6-sm-fioletovyi-108176878/?c=750000000",
+      "sku": "108176878",
+      "price": "2 320 ₸",
+      "reviews": "0",
+      "scores": {
+        "sales_score": 0,
+        "reviews_score": 0.5,
+        "price_score": 0.5,
+        "days_per_review_score": 0
+      },
+      "total_score": 1.0
+    },
+    {
+      "title": "Yoga Mat A910-020-1 183x61x0.6 см синий",
+      "url": "/shop/p/yoga-mat-a910-020-1-183x61x0-6-sm-sinii-101940146/?c=750000000",
+      "sku": "101940146",
+      "price": "2 159 ₸",
+      "reviews": "0",
+      "scores": {
+        "sales_score": 0,
+        "reviews_score": 0.5,
+        "price_score": 0.5,
+        "days_per_review_score": 0
+      },
+      "total_score": 1.0
+    }
+  ]
+}

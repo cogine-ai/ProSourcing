@@ -15,9 +15,16 @@ import json
 # 将项目根目录添加到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 环境检测
+is_docker = (
+    os.path.exists('/.dockerenv') or 
+    os.path.exists('/proc/1/cgroup') or 
+    os.getenv("ENV_MOD") == "production"
+)
+
 from core.final_pipeline import run_scoring_and_export
 from core.scoring import ScoringEngine, DEFAULT_CONFIG
-from deep_translator import GoogleTranslator
+# from deep_translator import GoogleTranslator
 
 app = FastAPI(title="ProSourcing API")
 
@@ -32,6 +39,7 @@ app.add_middleware(
 # 临时内存任务追踪 (包含进程对象以便取消)
 tasks_db = {}
 process_pool = {}
+browser_launch_lock = asyncio.Lock()
 
 class TaskRequest(BaseModel):
     category: str
@@ -47,6 +55,19 @@ class TaskStatus(BaseModel):
     category_stats: Optional[dict] = None
     trend_data: Optional[list] = None
     up_categories: Optional[list] = None
+
+# --- 系统管理模型 ---
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    role: str = "analyst"
+
+class SystemSettingsUpdate(BaseModel):
+    value: dict
+
+class LogCleanupRequest(BaseModel):
+    days: Optional[int] = None
+    date: Optional[str] = None # YYYY-MM-DD
 
 @app.post("/api/tasks", response_model=TaskStatus)
 def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
@@ -67,16 +88,59 @@ def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
     return task
 
 @app.get("/api/tasks/history")
-def get_task_history():
-    """获取历史任务记录，包含执行时间、状态、导出路径 - 改为普通 def 以免阻塞事件循环"""
+def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None, days: Optional[int] = None, status: Optional[str] = None, top_category: Optional[str] = None):
+    """获取历史任务记录，支持物理分页和搜索/时间筛选"""
     from core.final_pipeline import supabase as sb
-    res = sb.table("analysis_tasks").select("*").order("created_at", desc=True).limit(50).execute()
-    return res.data
+    from datetime import datetime, timedelta
+    offset = (page - 1) * page_size
+    
+    # 哥，先构建基础查询
+    query = sb.table("analysis_tasks")
+    if q:
+        query = query.ilike("category", f"%{q}%")
+    
+    if days and days > 0:
+        after = datetime.now() - timedelta(days=days)
+        # 兼容 ISO 格式
+        query = query.gte("created_at", after.isoformat())
+        
+    if status and status != 'all':
+        query = query.eq("status", status)
+        
+    if top_category and top_category != 'all':
+        # 通过 supabase jsonb 的包含查询过滤含有该大类名的节点
+        query = query.contains("up_categories", [{"category_name": top_category}])
+    
+    # 1. 获取满足条件的精确总数
+    count_res = query.select("*", count="exact").execute()
+    total = count_res.count
+    
+    # 2. 获取当前分页的数据
+    # 注意：select(count=None) 恢复正常查询模式
+    res = query.select("*").order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+    
+    # 3. 补全兼容逻辑 (时长解析)
+    data = res.data
+    for t in data:
+        if not t.get('duration') and t['status'] == 'completed':
+            try:
+                t['duration'] = calculate_duration_from_logs(t['id'])
+            except: t['duration'] = "--"
+            
+    return {"data": data, "total": total, "page": page, "page_size": page_size}
 
 @app.get("/api/tasks")
-def list_tasks():
+def list_tasks(category: Optional[str] = None, status: Optional[str] = None):
+    """获取任务列表，支持品类搜索和状态过滤"""
     from core.final_pipeline import supabase as sb
-    res = sb.table("analysis_tasks").select("*").order("created_at", desc=True).execute()
+    query = sb.table("analysis_tasks").select("*")
+    
+    if category:
+        query = query.ilike("category", f"%{category}%")
+    if status:
+        query = query.eq("status", status)
+        
+    res = query.order("created_at", desc=True).execute()
     data = res.data
     for t in data:
         if not t.get('duration') and t['status'] == 'completed':
@@ -207,6 +271,134 @@ async def get_index():
     with open(os.path.join(os.path.dirname(__file__), "index.html"), "r", encoding="utf-8") as f:
         return f.read()
 
+@app.post("/api/system/logs/cleanup")
+def cleanup_logs(days: int = 7):
+    """清理 N 天前的任务日志 (保留兼容性)"""
+    return clear_logs(LogCleanupRequest(days=days))
+
+# --- 系统管理 API ---
+
+@app.get("/api/system/users")
+def list_system_users():
+    from core.final_pipeline import supabase as sb
+    res = sb.table("system_users").select("id, username, role, created_at").execute()
+    return res.data
+
+@app.post("/api/system/users")
+def create_system_user(user: UserCreate):
+    from core.final_pipeline import supabase as sb
+    # 哥，这里简单处理，实际应加盐哈希
+    payload = {
+        "username": user.username,
+        "password_hash": user.password,
+        "role": user.role
+    }
+    res = sb.table("system_users").insert(payload).execute()
+    if not res.data:
+        raise HTTPException(status_code=400, detail="Failed to create user")
+    return res.data[0]
+
+@app.delete("/api/system/users/{user_id}")
+def delete_system_user(user_id: str):
+    from core.final_pipeline import supabase as sb
+    sb.table("system_users").delete().eq("id", user_id).execute()
+    return {"status": "success"}
+
+@app.get("/api/system/settings/{key}")
+def get_system_setting(key: str):
+    from core.final_pipeline import supabase as sb
+    try:
+        res = sb.table("system_settings").select("*").eq("key", key).execute()
+        if not res.data:
+            # 如果不存在，返回默认值
+            if key == "storage_config":
+                return {"key": key, "value": {"path": "./output", "auto_cleanup_days": 15}}
+            if key == "collection_config":
+                return {"key": key, "value": {"algatop": {"username": "", "password": ""}}}
+            raise HTTPException(status_code=404, detail="Setting not found")
+        return res.data[0]
+    except:
+        # 兼容表不存在的情况
+        if key == "storage_config":
+            return {"key": key, "value": {"path": "./output", "auto_cleanup_days": 15}}
+        if key == "collection_config":
+            return {"key": key, "value": {"algatop": {"username": "", "password": ""}}}
+        raise HTTPException(status_code=404, detail="Setting not found")
+
+@app.post("/api/system/settings/{key}")
+def update_system_setting(key: str, req: SystemSettingsUpdate):
+    from core.final_pipeline import supabase as sb
+    payload = {
+        "key": key,
+        "value": req.value,
+        "updated_at": datetime.now().isoformat()
+    }
+    res = sb.table("system_settings").upsert(payload).execute()
+    return res.data[0]
+
+@app.get("/api/system/logs")
+def list_logs():
+    """获取所有日志文件及其日期属性"""
+    log_dir = "logs"
+    if not os.path.exists(log_dir):
+        return []
+    
+    logs = []
+    for filename in os.listdir(log_dir):
+        if filename.endswith(".log"):
+            path = os.path.join(log_dir, filename)
+            stat = os.stat(path)
+            logs.append({
+                "filename": filename,
+                "size": stat.st_size,
+                "date": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d"),
+                "mtime": stat.st_mtime
+            })
+    logs.sort(key=lambda x: x['mtime'], reverse=True)
+    return logs
+
+@app.post("/api/system/logs/clear")
+def clear_logs(req: LogCleanupRequest):
+    """灵活清理日志：按天数、按日期、或全部"""
+    import time
+    log_dir = "logs"
+    if not os.path.exists(log_dir):
+        return {"count": 0}
+        
+    count = 0
+    now = time.time()
+    
+    for filename in os.listdir(log_dir):
+        if not filename.endswith(".log"): continue
+        file_path = os.path.join(log_dir, filename)
+        mtime = os.path.getmtime(file_path)
+        
+        should_delete = False
+        
+        # 情况 1: 按天数 (如 15 天前)
+        if req.days is not None:
+            cutoff = now - (req.days * 86400)
+            if mtime < cutoff:
+                should_delete = True
+        
+        # 情况 2: 按特定日期 (YYYY-MM-DD)
+        elif req.date is not None:
+            file_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+            if file_date == req.date:
+                should_delete = True
+                
+        # 情况 3: 全部清除 (days=0)
+        elif req.days == 0:
+            should_delete = True
+
+        if should_delete:
+            try:
+                os.remove(file_path)
+                count += 1
+            except: pass
+                
+    return {"count": count, "message": f"Successfully cleared {count} logs"}
+
 @app.get("/api/download")
 async def download_file(path: str):
     if os.path.exists(path):
@@ -262,6 +454,49 @@ def get_top_categories():
         })
     mapped.sort(key=lambda x: x['monthly_sales'], reverse=True)
     return mapped
+
+@app.get("/api/system/health")
+def system_health():
+    """系统健康检查：Chrome, Database, Disk"""
+    import socket
+    import os
+    from core.final_pipeline import supabase as sb
+    
+    # 1. 检查数据库连接
+    db_status = "healthy"
+    db_error = None
+    try:
+        sb.table("analysis_tasks").select("id").limit(1).execute()
+    except Exception as e:
+        db_status = "unhealthy"
+        db_error = str(e)
+        
+    # 2. 检查 Chrome RPA 端口
+    chrome_status = "closed"
+    # 哥，针对容器环境探测宿主机端口，非容器探测本地
+    target = os.getenv("CHROME_REMOTE_DEBUG_ADDR", "host.docker.internal:9222").split(":")[0] if is_docker else "127.0.0.1"
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            if s.connect_ex((target, 9222)) == 0:
+                chrome_status = "open"
+    except: pass
+    
+    # 3. 检查存储目录
+    storage = {
+        "output": os.path.exists("output"),
+        "logs": os.path.exists("logs"),
+        "templates": os.path.exists("templates")
+    }
+    
+    return {
+        "status": "ok" if db_status == "healthy" else "error",
+        "database": {"status": db_status, "error": db_error},
+        "chrome": {"status": chrome_status, "port": 9222, "target": target},
+        "storage": storage,
+        "environment": "docker" if is_docker else "local",
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 @app.get("/api/categories/search")
@@ -327,6 +562,40 @@ async def get_top_category_leaves(top_id: str):
 
 
 
+@app.post("/api/tasks/{task_id}/retry", response_model=TaskStatus)
+def retry_task(task_id: str, background_tasks: BackgroundTasks):
+    """重试失败的任务，接通前端点击"""
+    from core.final_pipeline import supabase as sb
+    res = sb.table("analysis_tasks").select("*").eq("id", task_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Task not found")
+    t = res.data[0]
+    
+    # 哥，针对防重试连点（幂等性）的增强：如果已经在队列或执行中，直接拦截
+    if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
+        return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
+
+    # 哥，针对防重试连点（幂等性）的增强：如果已经在队列或执行中，直接拦截
+    if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
+        return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
+
+    # 强制重置状态和进度
+    payload = {
+        "status": "pending", 
+        "progress": 0, 
+        "error_msg": None, 
+        "excel_path": None, 
+        "updated_at": datetime.now().isoformat()
+    }
+    sb.table("analysis_tasks").update(payload).eq("id", task_id).execute()
+    
+    # 获取原始类别ID，如果是空则用名称兜底
+    cat_id = t.get("category_id") or t.get("category")
+    
+    background_tasks.add_task(execute_rpa_pipeline, task_id, cat_id, t.get("category"))
+    return TaskStatus(task_id=task_id, category=t['category'], status="pending", progress=0)
+
+
 @app.post("/api/tasks/category", response_model=TaskStatus)
 def create_category_task(req: TaskRequest, background_tasks: BackgroundTasks):
     """强制根据品类数字 ID 发起选品分析任务 - 改为线程模式"""
@@ -334,7 +603,19 @@ def create_category_task(req: TaskRequest, background_tasks: BackgroundTasks):
     category_id = req.category
     display_title = category_id
     
-    # 哥，如果是数字 ID，直接去主表查中文名存库
+    # 哥，针对防重复抓取的检测：15天同类目拦截
+    recent_limit = (datetime.now() - timedelta(days=15)).isoformat()
+    recent = sb.table("analysis_tasks").select("id").eq("category_id", str(category_id)).eq("status", "completed").gte("created_at", recent_limit).limit(1).execute()
+    if recent.data:
+        # 如果已经有了，不创建任务，直接返回一个已完成的 Task 占位
+        return TaskStatus(
+            task_id=recent.data[0]['id'],
+            category=str(category_id),
+            status="completed",
+            progress=100
+        )
+    
+    # 如果是数字 ID，直接去主表查中文名存库
     if str(category_id).isdigit():
         res_master = sb.table("algatop_categories_master").select("name_cn").eq("algatop_id", int(category_id)).limit(1).execute()
         if res_master.data and res_master.data[0]['name_cn']:
@@ -345,7 +626,8 @@ def create_category_task(req: TaskRequest, background_tasks: BackgroundTasks):
         "category_id": category_id,
         "status": "pending",
         "progress": 0,
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat()
     }
     res = sb.table("analysis_tasks").insert(task_data).execute()
     db_task = res.data[0]
@@ -353,81 +635,44 @@ def create_category_task(req: TaskRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(execute_rpa_pipeline, task_id, category_id, display_title)
     return TaskStatus(task_id=task_id, category=display_title, status="pending", progress=0)
 
-def execute_rpa_pipeline(task_id: str, category_id: str, category_name: str):
-    """RPA 静默执行流程：普通 def 后台运行，基于线程池，不阻塞主线程"""
+async def execute_rpa_pipeline(task_id: str, category_id: str, category_name: str):
+    """RPA 静默执行流程：改为 async def，支持多任务并发不阻塞"""
     from core.final_pipeline import supabase as sb
-    import socket
-    import subprocess
+    import asyncio
     import sys
     import os
-    import time
     from datetime import datetime
     
-    start_time = datetime.now()
-    
-    def is_port_in_use(port):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            return s.connect_ex(('127.0.0.1', port)) == 0
+    async def is_port_in_use_async(port):
+        target = os.getenv("CHROME_REMOTE_DEBUG_ADDR", "host.docker.internal:9222").split(":")[0] if is_docker else "127.0.0.1"
+        try:
+            _, writer = await asyncio.wait_for(asyncio.open_connection(target, port), timeout=2.0)
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except:
+            return False
 
-    def launch_browser():
-        """
-        启动 Chrome RPA 浏览器。
-        哥，这里我加了自动探测逻辑，防止不同电脑路径不一致。
-        """
-        # 1. 优先从环境变量获取
+    async def launch_browser_async():
         chrome_path = os.getenv("CHROME_PATH")
-        
-        # 2. 如果没配置，则自动探测常见路径
         if not chrome_path or not os.path.exists(chrome_path):
             possible_paths = [
                 r"C:\Program Files\Google\Chrome\Application\chrome.exe",
                 r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
                 os.path.join(os.environ.get('LocalAppData', 'C:\\Users\\Default\\AppData\\Local'), r"Google\Chrome\Application\chrome.exe"),
-                os.path.join(os.environ.get('ProgramFiles', 'C:\\Program Files'), r"Google\Chrome\Application\chrome.exe"),
-                os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), r"Google\Chrome\Application\chrome.exe"),
             ]
             for p in possible_paths:
                 if os.path.exists(p):
                     chrome_path = p
                     break
         
-        def is_port_in_use(port):
-            # 哥，如果是容器环境，咱得查宿主机的端口，不能查容器自己的
-            target = os.getenv("CHROME_REMOTE_DEBUG_ADDR", "host.docker.internal:9222").split(":")[0] if is_docker else "127.0.0.1"
-            import socket
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(2)
-                return s.connect_ex((target, port)) == 0
-
-        if not chrome_path or not os.path.exists(chrome_path):
-            msg = "❌ 找不到 Chrome 可执行文件！"
-            if is_docker:
-                msg += " (处于容器环境)"
-                # 检查一下宿主机的调试端口开了没
-                if is_port_in_use(9222):
-                    print(f"[SUCCESS] 探测到宿主机 9222 端口已开启，逻辑继续。")
-                    return None
-                else:
-                    msg += " 请在宿主机手动运行 launch_rpa_chrome.py 开启浏览器。"
-                    print(f"[WARNING] {msg} (Path: {chrome_path})")
-                    return None
-            else:
-                env_info = f"is_docker={is_docker}, ENV_MOD={os.getenv('ENV_MOD')}"
-                msg += f" (环境: {env_info}) 请确认安装 Chrome 或配置 CHROME_PATH。"
-                raise FileNotFoundError(msg)
-
-        if is_docker:
-            # 容器环境不建议直接调用 subprocess 启动宿主机程序（除非做了复杂的挂载或 RPC）
-            # 直接引导用户手动启动，避免报奇怪的权限/路径错误
-            print("[DOCKER] 检测到生产/容器环境，跳过自动启动逻辑。请确保宿主机已开启 9222 端口。")
+        if is_docker or not chrome_path or not os.path.exists(chrome_path):
             return None
 
         port = 9222
-        # 用户数据目录也改为相对路径或可配置路径，避免 C 盘权限问题
         current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         user_data_dir = os.path.join(current_dir, "tmp", "chrome_rpa_profile")
-        if not os.path.exists(user_data_dir): 
-            os.makedirs(user_data_dir, exist_ok=True)
+        os.makedirs(user_data_dir, exist_ok=True)
             
         cmd = [
             chrome_path,
@@ -436,109 +681,115 @@ def execute_rpa_pipeline(task_id: str, category_id: str, category_name: str):
             "--no-first-run",
             "--no-default-browser-check"
         ]
+        import subprocess
         return subprocess.Popen(cmd)
 
-    def update_db(p, s, url=None, err=None, duration=None):
+    async def update_db_async(p, s, url=None, err=None, duration=None):
         payload = {"progress": p, "status": s}
         if url: payload["excel_path"] = url
         if err: payload["error_msg"] = err
         if duration: payload["duration"] = duration
-        sb.table("analysis_tasks").update(payload).eq("id", task_id).execute()
+        payload["updated_at"] = datetime.now().isoformat()
+        await asyncio.to_thread(sb.table("analysis_tasks").update(payload).eq("id", task_id).execute)
 
+    async def write_log(f, msg):
+        timestamp = datetime.now().isoformat()
+        await asyncio.to_thread(f.write, f"[{timestamp}] {msg}\n")
+        await asyncio.to_thread(f.flush)
+
+    log_file = None
     try:
         log_dir = "logs"
-        if not os.path.exists(log_dir): os.makedirs(log_dir)
+        os.makedirs(log_dir, exist_ok=True)
         log_path = os.path.join(log_dir, f"{task_id}.log")
-        log_file = open(log_path, "a", encoding="utf-8")
+        log_file = await asyncio.to_thread(open, log_path, "a", encoding="utf-8")
 
-        update_db(10, "crawling")
-        log_file.write(f"[{datetime.now().isoformat()}] --- Starting RPA Pipeline for category: {category_name} ---\n")
+        await update_db_async(10, "crawling")
+        await write_log(log_file, f"--- Starting RPA Pipeline for category: {category_name} ---")
         
-        # 定义内部检测函数（因为要用到 is_docker）
-        def check_port():
-            # 同样需要检测环境
-            is_docker_env = (
-                os.path.exists('/.dockerenv') or 
-                os.path.exists('/proc/1/cgroup') or 
-                os.getenv("ENV_MOD") == "production"
-            )
-            target = os.getenv("CHROME_REMOTE_DEBUG_ADDR", "host.docker.internal:9222").split(":")[0] if is_docker_env else "127.0.0.1"
-            import socket
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(2)
-                return s.connect_ex((target, 9222)) == 0
-
-        if not check_port():
-            log_file.write(f"[{datetime.now().isoformat()}] Detecting Chrome Debug port 9222... Not Found.\n")
-            if is_docker:
-                log_file.write(f"[{datetime.now().isoformat()}] [DOCKER] 请确保宿主机已运行 launch_rpa_chrome.py\n")
+        # 哥，针对 Chrome 启动加个异步锁，防止任务 1 和任务 2 同时去 Popen 导致 Profile 锁死
+        async with browser_launch_lock:
+            if not await is_port_in_use_async(9222):
+                await write_log(log_file, "Detecting Chrome Debug port 9222... Not Found. Attempting to launch...")
+                await launch_browser_async()
+                # 给 Chrome 一点点呼吸时间
+                await asyncio.sleep(5)
             else:
-                log_file.write(f"[{datetime.now().isoformat()}] 正在自动启动浏览器...\n")
-                launch_browser()
-                time.sleep(5)
-            
-            if check_port():
-                log_file.write(f"[{datetime.now().isoformat()}] Browser/Port is now ready.\n")
-            else:
-                log_file.write(f"[{datetime.now().isoformat()}] WARNING: Chrome Debug port 9222 is still closed.\n")
+                await write_log(log_file, "Chrome Debug port 9222 is ALREADY active. Joining existing session.")
         
-        log_file.flush()
-
         rpa_output_path = os.path.abspath(f"output/rpa_output_{task_id}.json")
         os.makedirs(os.path.dirname(rpa_output_path), exist_ok=True)
 
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
-        process = subprocess.Popen(
-            [sys.executable, "core/algatop_rpa_scraper.py", category_id, task_id],
+        
+        # 哥，优先从系统设置里拿账号，这样 UI 上改完就能直接生效
+        try:
+            settings_res = await asyncio.to_thread(sb.table("system_settings").select("*").eq("key", "collection_config").execute)
+            if settings_res.data:
+                config = settings_res.data[0].get("value", {})
+                algatop_config = config.get("algatop", {})
+                if algatop_config.get("username"):
+                    env["ALGATOP_USER"] = algatop_config.get("username")
+                if algatop_config.get("password"):
+                    env["ALGATOP_PASS"] = algatop_config.get("password")
+        except: pass
+        
+        # 核心：使用 asyncio.create_subprocess_exec 启动爬虫，不阻塞事件循环
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, "core/algatop_rpa_scraper.py", category_id, task_id,
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             env=env,
             stdout=log_file,
             stderr=log_file
         )
         process_pool[task_id] = process
+        await write_log(log_file, f"[PROCESS] Crawler process started (PID: {process.pid})")
         
-        while process.poll() is None:
-            time.sleep(5)
-            update_db(30, "crawling")
-            
+        # 轮询直至完成
+        while process.returncode is None:
+            await asyncio.sleep(10)
+            res = await asyncio.to_thread(sb.table("analysis_tasks").select("status").eq("id", task_id).execute)
+            if res.data and res.data[0]['status'] == 'crawling':
+                await update_db_async(30, "crawling")
+            if process.returncode is not None: break
+
         if process.returncode != 0:
-            msg = "Scraper failed with exit code " + str(process.returncode)
-            log_file.write(f"\n[{datetime.now().isoformat()}] [ERROR] {msg}\n")
-            log_file.close()
-            update_db(0, "failed", err="Scraper failed. Check logs for details.")
+            await write_log(log_file, f"Scraper failed with exit code {process.returncode}")
+            await update_db_async(0, "failed", err="Scraper failed. Check logs for details.")
             return
 
-        update_db(80, "reporting")
-        log_file.write(f"\n[{datetime.now().isoformat()}] --- Scraper finished, starting reporting pipeline ---\n")
-        log_file.flush()
+        await update_db_async(80, "reporting")
+        await write_log(log_file, "--- Scraper finished, starting reporting pipeline ---")
         
-        report_process = subprocess.run(
-            [sys.executable, "core/rpa_final_pipeline.py", task_id, rpa_output_path],
+        report_process = await asyncio.create_subprocess_exec(
+            sys.executable, "core/rpa_final_pipeline.py", task_id, rpa_output_path,
             stdout=log_file,
             stderr=log_file
         )
+        await report_process.wait()
 
         if report_process.returncode != 0:
-            update_db(0, "failed", err="Reporting pipeline failed.")
-            log_file.close()
+            await update_db_async(0, "failed", err="Reporting pipeline failed.")
             return
         
         duration_str = "--"
         try:
-            duration_str = calculate_duration_from_logs(task_id)
+            duration_str = await asyncio.to_thread(calculate_duration_from_logs, task_id)
         except: pass
         
-        update_db(100, "completed", duration=duration_str)
-        log_file.write(f"\n[{datetime.now().isoformat()}] --- Pipeline COMPLETED successfully (Duration: {duration_str}) ---\n")
-        log_file.close()
+        await update_db_async(100, "completed", duration=duration_str)
+        await write_log(log_file, f"--- Pipeline COMPLETED successfully (Duration: {duration_str}) ---")
 
     except Exception as e:
         import traceback
-        if 'log_file' in locals():
-            log_file.write(f"\n[FATAL ERROR] {str(e)}\n{traceback.format_exc()}\n")
-            log_file.close()
-        update_db(0, "failed", err=str(e))
+        if log_file:
+            await write_log(log_file, f"[FATAL ERROR] {str(e)}\n{traceback.format_exc()}")
+        await update_db_async(0, "failed", err=str(e))
+    finally:
+        if log_file:
+            await asyncio.to_thread(log_file.close)
+
 
 @app.get("/api/market/global_stats")
 def get_global_stats():
@@ -572,6 +823,23 @@ def get_kaspi_global_tree():
             if len(res.data) < page_size: break
         
         if not all_cats: return []
+
+        # 哥，针对所有叶子节点，一次性查出它们最近的成功采集时间
+        all_leaf_ids = [str(c['algatop_id']) for c in all_cats if c.get('is_leaf')]
+        date_map = {}
+        if all_leaf_ids:
+            try:
+                # 获取所有成功过任务的最新时间
+                # 哥，这里拉取全部成功过的，后续直接在内存里覆盖，保证拿到的是每个 ID 最后的那个 created_at
+                res_tasks = sb.table("analysis_tasks").select("category_id, created_at").eq("status", "completed").order("created_at", desc=False).execute()
+                for t in res_tasks.data:
+                    cid = str(t.get('category_id')) if t.get('category_id') else None
+                    dt = t.get('created_at')
+                    if cid and dt:
+                        # 只取日期部分 yyyy-mm-dd
+                        date_map[cid] = dt[:10]
+            except: pass
+
         p_map = {}
         for c in all_cats:
             raw_pid = c.get('parent_id')
@@ -580,7 +848,8 @@ def get_kaspi_global_tree():
                 'category_code': str(c['algatop_id']),
                 'title': c.get('name_cn') or c.get('name_ru') or str(c['algatop_id']),
                 'parent_code': pid,
-                'is_leaf': c.get('is_leaf', False)
+                'is_leaf': c.get('is_leaf', False),
+                'last_crawl_date': date_map.get(str(c['algatop_id']))
             }
             p_map.setdefault(pid, []).append(node)
 
@@ -598,6 +867,9 @@ def get_kaspi_global_tree():
 @app.post('/api/kaspi/tasks/batch')
 def create_kaspi_tasks_batch(item_codes: list[str], background_tasks: BackgroundTasks):
     from core.final_pipeline import supabase as sb
+    
+    total_requested = len(item_codes)
+    
     # 哥，先把这些 ID 的中文名全副武装好，优先去 master 主表拿最正宗的翻译
     res_master = sb.table('algatop_categories_master').select('algatop_id, name_cn, name_ru').in_('algatop_id', item_codes).execute()
     
@@ -623,21 +895,42 @@ def create_kaspi_tasks_batch(item_codes: list[str], background_tasks: Background
             code_map[aid] = name
             code_map[kid] = name
 
+    # 哥，15天同类目拦截过滤！防止重复发起资源浪费
+    recent_limit = (datetime.now() - timedelta(days=15)).isoformat()
+    recent = sb.table("analysis_tasks").select("category_id").in_("category_id", item_codes).eq("status", "completed").gte("created_at", recent_limit).execute()
+    recent_ids = {r['category_id'] for r in recent.data if r.get('category_id')}
+    
+    filtered_codes = [c for c in item_codes if c not in recent_ids]
+    filtered_count = total_requested - len(filtered_codes)
+
     payload = []
-    for code in item_codes:
+    for code in filtered_codes:
         display_name = code_map.get(str(code), str(code))
         payload.append({
             'category_id': str(code),
             'category': display_name,
             'status': 'pending',
-            'progress': 0
+            'progress': 0,
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
         })
         
     try:
-        inserted = sb.table('analysis_tasks').insert(payload).execute()
-        for task in inserted.data:
-            background_tasks.add_task(execute_rpa_pipeline, task['id'], task['category_id'], task['category'])
-        return {'success': True, 'count': len(inserted.data)}
+        if payload:
+            inserted = sb.table('analysis_tasks').insert(payload).execute()
+            for task in inserted.data:
+                background_tasks.add_task(execute_rpa_pipeline, task['id'], task['category_id'], task['category'])
+            actual_count = len(inserted.data)
+        else:
+            actual_count = 0
+            
+        return {
+            'success': True,
+            'count': actual_count,
+            'total_requested': total_requested,
+            'filtered_duplicate': filtered_count,
+            'actual_executed': actual_count
+        }
     except Exception as e:
         return {'success': False, 'message': str(e)}
 
@@ -678,6 +971,84 @@ def reset_algo_config():
     except: pass
     return {"status": "success", "message": "已恢复默认配置"}
 
+def seed_database_on_startup():
+    """如果数据库为空，自动从 JSON 种子文件加载数据 (哥，增加了 30s 自动重试)"""
+    from core.final_pipeline import supabase as sb
+    import time
+    import json
+    
+    max_retries = 10
+    retry_delay = 3
+    
+    for attempt in range(max_retries):
+        try:
+            # 1. 检查 Master 表是否为空 (顺便测试连接)
+            res = sb.table("algatop_categories_master").select("algatop_id").limit(1).execute()
+            
+            if not res.data:
+                # 哥，路径适配容器环境，优先找 app/scripts
+                seed_file = "scripts/full_category_data.json"
+                if not os.path.exists(seed_file):
+                    seed_file = "/app/scripts/full_category_data.json"
+                
+                if os.path.exists(seed_file):
+                    print(f"[SEED] Database empty. Seeding from {seed_file}...")
+                    with open(seed_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        
+                    # 批量导入 Master (分批以防太大)
+                    master_list = data.get('master', [])
+                    for i in range(0, len(master_list), 500):
+                        batch = master_list[i:i+500]
+                        sb.table("algatop_categories_master").insert(batch).execute()
+                    
+                    # 批量导入 Stats
+                    stats_list = data.get('stats', [])
+                    for i in range(0, len(stats_list), 500):
+                        batch = stats_list[i:i+500]
+                        sb.table("algatop_top_category_stats").insert(batch).execute()
+                    
+                    print(f"✅ Successfully seeded {len(master_list)} categories and {len(stats_list)} stats.")
+
+            # 2. 检查兼容表 categories 是否有数据
+            res_compat = sb.table("categories").select("category_id").limit(1).execute()
+            if not res_compat.data:
+                print("[SEED] Categories table is empty. Syncing from Master...")
+                all_master = []
+                for i in range(10): # 最多 10000 条
+                    res_m = sb.table("algatop_categories_master").select("*").range(i*1000, (i+1)*1000-1).execute()
+                    if not res_m.data: break
+                    all_master.extend(res_m.data)
+                
+                if all_master:
+                    compat_payload = []
+                    for m in all_master:
+                        ru = m.get('name_ru') or ""
+                        cn = m.get('name_cn') or ""
+                        display = f"{ru} ({cn})" if cn else ru
+                        compat_payload.append({
+                            "category_id": m['algatop_id'],
+                            "category_name": display,
+                            "monthly_sales": m.get("monthly_sales") or 0,
+                            "parent_category_id": m.get("parent_id"),
+                            "is_top_level": m.get("level") == 1
+                        })
+                    
+                    for i in range(0, len(compat_payload), 500):
+                        sb.table("categories").insert(compat_payload[i:i+500]).execute()
+                    print(f"✅ Successfully synced {len(compat_payload)} records to categories.")
+            
+            break 
+
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "starting up" in err_msg or "connection" in err_msg:
+                print(f"[RETRY] Database is starting up... Waiting {retry_delay}s (Attempt {attempt+1}/{max_retries})")
+                time.sleep(retry_delay)
+            else:
+                print(f"❌ Seeding error: {e}")
+                break
+
 def load_config_on_startup():
     """启动时尝试从数据库加载配置"""
     from core.final_pipeline import supabase as sb
@@ -689,9 +1060,52 @@ def load_config_on_startup():
     except Exception as e:
         print(f"No custom config found or table missing, using hardcoded defaults. ({e})")
 
+def init_system_tables():
+    """初始化系统管理相关的表和默认数据 (哥，这是为了保证你直接运行就能看到数据)"""
+    from core.final_pipeline import supabase as sb
+    try:
+        # 1. 尝试创建 system_users 表 (如果不存在则 SQL 报错，我们会捕获)
+        print("[INIT] Checking system tables...")
+        
+        # 2. 检查并初始化默认配置 (system_settings)
+        # 哥，这里直接用 upsert，保证基础配置存在
+        default_settings = [
+            {
+                "key": "storage_config", 
+                "value": {"path": "./output", "auto_cleanup_days": 15},
+                "description": "文件存储相关配置"
+            },
+            {
+                "key": "collection_config", 
+                "value": {"algatop": {"username": "", "password": ""}}, # 哥，改成 AlgaTop 了
+                "description": "数据平台采集凭据"
+            }
+        ]
+        for s in default_settings:
+            try:
+                sb.table("system_settings").upsert(s).execute()
+            except: pass # 表可能还没创建，下文会处理
+            
+        # 3. 检查并初始化默认管理员
+        try:
+            res = sb.table("system_users").select("*").eq("username", "admin").execute()
+            if not res.data:
+                sb.table("system_users").insert({
+                    "username": "admin",
+                    "password_hash": "admin123", # 建议生产环境修改
+                    "role": "admin"
+                }).execute()
+                print("✅ Default admin created.")
+        except: pass
+
+    except Exception as e:
+        print(f"[INIT] System tables auto-init skipped or failed (might need manual SQL): {e}")
+
 # 注册启动事件
 @app.on_event("startup")
 async def startup_event():
+    seed_database_on_startup()
+    init_system_tables() # 哥，新增这一行
     load_config_on_startup()
 
 if __name__ == "__main__":

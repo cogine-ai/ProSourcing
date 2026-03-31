@@ -13,24 +13,26 @@ load_dotenv()
 # 设置项目根目录
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.scoring import ScoringEngine
+import concurrent.futures
 
 # ==========================================
 # 核心配置
 # ==========================================
-INPUT_FILE = "./output/rpa_output.json"
-TEMPLATE_PATH = "./AI产品开发.xlsx"
+INPUT_FILE = "./output/json/rpa_output.json"
+TEMPLATE_PATH = "./templates/AI产品开发.xlsx"
 OUTPUT_DIR = "./output"
 # 优先从环境变量读取，避免图片入包导致项目臃肿
 IMAGE_DIR = os.getenv("IMAGE_STORAGE_PATH", os.path.join(OUTPUT_DIR, "images"))
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
 def download_image(url, sku):
-    """由于是真实浏览器预览链接，这里需要支持从 CDN 下载"""
+    """支持并行下载，增加超时控制和重试策略"""
     if not url: return None
     path = os.path.join(IMAGE_DIR, f"{sku}.jpg")
     if os.path.exists(path): return path
     try:
-        r = requests.get(url, timeout=10)
+        # 哥，超时时间缩短为 5s，如果是内网或断网没必要死等
+        r = requests.get(url, timeout=5)
         if r.status_code == 200:
             with open(path, 'wb') as f: f.write(r.content)
             return path
@@ -90,7 +92,7 @@ def json_safe(obj):
 def process_rpa_data(task_id=None, input_file=None):
     # 如果没传 input_file，则尝试拼接默认路径
     # 哥，这里一定要统一用相对路径，不然容器里找不着
-    target_file = input_file or os.path.join(OUTPUT_DIR, f"rpa_output_{task_id}.json")
+    target_file = input_file or os.path.join(OUTPUT_DIR, "json", f"rpa_output_{task_id}.json")
     
     if not os.path.exists(target_file):
         print(f"[ERROR] 找不到输入文件: {target_file}")
@@ -103,27 +105,54 @@ def process_rpa_data(task_id=None, input_file=None):
     products = rpa_data.get("products", [])[:160]  # 哥，本次多页采集同步 160 条 (8页)
     trend = rpa_data.get("trend", [])
 
+    # 哥，针对一级分类的中文化增强逻辑 (针对 21 个固定一级大类，由于 Algatop API 仅返回俄文)
+    up_cats = niche_stats.get("up_categories_json") or []
+    if up_cats:
+        try:
+            # 建立一级分类 ID 到中文名的映射 (仅在有上级类目时触发查表)
+            p_cid = str(up_cats[0].get("category_id"))
+            cn_data = None
+            if ENV_MOD == "production":
+                cur_tmp = conn.cursor()
+                cur_tmp.execute("SELECT name_cn, name_ru FROM algatop_categories_master WHERE algatop_id = %s AND level = 1", (p_cid,))
+                cn_data = cur_tmp.fetchone()
+                cur_tmp.close()
+            else:
+                res_tmp = supabase.table("algatop_categories_master").select("name_cn, name_ru").eq("algatop_id", p_cid).eq("level", 1).execute()
+                if res_tmp.data: cn_data = (res_tmp.data[0]['name_cn'], res_tmp.data[0]['name_ru'])
+
+            if cn_data and cn_data[0]:
+                # 记录原始俄文，拼接中文名，格式统一为 "俄文 (中文)"
+                cn, ru = cn_data[0], cn_data[1]
+                up_cats[0]["category_name"] = f"{ru} ({cn})"
+                print(f"[L10N] 已自动增强一级分类名称: {up_cats[0]['category_name']}")
+        except Exception as e:
+            print(f"[WARN] 一级分类中文化失败: {e}")
+
     if not products:
         print("[ERROR] 商品列表为空，请检查采集环节。")
         return
 
-    # 翻译商品名称
-    from deep_translator import GoogleTranslator
-    import concurrent.futures
+    # 翻译商品名称 (哥，客户现场环境可能没网，暂时注掉)
+    # from deep_translator import GoogleTranslator
+    # import concurrent.futures
 
-    def translate_name(p):
-        raw_name = p.get('product_name')
-        if not raw_name: return p
-        try:
-            translator = GoogleTranslator(source='auto', target='zh-CN')
-            p['product_name'] = translator.translate(raw_name)
-        except:
-            pass
-        return p
+    # def translate_name(p):
+    #     raw_name = p.get('product_name')
+    #     if not raw_name: return p
+    #     try:
+    #         # 哥，源语言定死为 'ru' (俄语)，提高翻译准确度和稳定性
+    #         translator = GoogleTranslator(source='ru', target='zh-CN')
+    #         p['product_name'] = translator.translate(raw_name)
+    #         # print(f"[DEBUG] Translated: {raw_name[:20]} -> {p['product_name'][:20]}")
+    #     except Exception as e:
+    #         print(f"[WARN] 翻译失败 ({raw_name[:20]}...): {e}")
+    #         pass
+    #     return p
 
-    print(f"[SYNC] 正在翻译 {len(products)} 条商品名称...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        products = list(executor.map(translate_name, products))
+    # print(f"[SYNC] 正在翻译 {len(products)} 条商品名称...")
+    # with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    #     products = list(executor.map(translate_name, products))
 
     # 1.1 校验 Task ID，如果无效则创建新任务
     final_task_id = task_id
@@ -173,24 +202,25 @@ def process_rpa_data(task_id=None, input_file=None):
             total_revenue_original = sum(float(p.get('sale_amount', 0)) for p in products)
         
         # 品牌数：严格使用 Algatop 原始字段 (sale_brand_qty)
-        brand_count_original = niche_stats.get("sale_brand_qty", 0)
+        brand_count_original = niche_stats.get("sale_brand_qty") or 0
         
         # CR3 计算 (爬取前三之和 / Algatop大盘总销售额)
-        cr3_ratio = (top3_revenue / total_revenue_original * 100) if total_revenue_original > 0 else 0
+        cr3_ratio = (top3_revenue / total_revenue_original * 100) if total_revenue_original and total_revenue_original > 0 else 0
         
         # 把这些核心值同步到 niche_stats，确保前端绑定简单
         niche_stats["top3_revenue"] = top3_revenue
         niche_stats["sale_amount"] = total_revenue_original
         niche_stats["brand_qty"] = brand_count_original
-        niche_stats["sale_merchant_qty"] = niche_stats.get("sale_seller_qty", 0)
+        niche_stats["sale_merchant_qty"] = niche_stats.get("sale_seller_qty") or 0
         niche_stats["cr3"] = f"{cr3_ratio:.1f}%"
+        niche_stats["valid_product_count"] = 0 # 占位，稍后由循环统计覆盖
         
         print(f"[STATS] 指标校准：Top3={top3_revenue}, 品牌数(原装)={brand_count_original}, 卖家数={niche_stats['sale_merchant_qty']}, CR3={niche_stats['cr3']}")
 
-    cat_sales = niche_stats.get("sale_qty", 0)
-    cat_product_count = niche_stats.get("sale_product_qty", 1)
-    cat_ratio = cat_sales / cat_product_count if cat_product_count > 0 else 0
-    cat_path = " > ".join([c["category_name"] for c in niche_stats.get("up_categories_json", [])])
+    cat_sales = niche_stats.get("sale_qty") or 0
+    cat_product_count = niche_stats.get("sale_product_qty") or 0
+    cat_ratio = cat_sales / cat_product_count if cat_product_count and cat_product_count > 0 else 0
+    cat_path = " > ".join([c["category_name"] for c in (niche_stats.get("up_categories_json") or [])])
 
     print(f"[SYNC] 正在同步 {len(products)} 条商品详情至 V2.0 数据库...")
 
@@ -204,6 +234,7 @@ def process_rpa_data(task_id=None, input_file=None):
         try: return float(str(v).replace(' ', '').replace(',', ''))
         except: return 0.0
 
+    valid_product_count = 0
     for p in products:
         sku = str(p.get('product_code'))
         m_sales = safe_int(p.get('sale_qty', 0))
@@ -231,6 +262,10 @@ def process_rpa_data(task_id=None, input_file=None):
         
         # 总分加和 (月销量 + 评论 + 价格 + 销品比 + 成长潜力)
         total_score = s_sales + s_reviews + s_price + s_avg_sales + s_days_per_review
+
+        # 哥，计算有效产品数（符合潜力优质筛选标准：销量>=60, 评论>=15, 价格>=800, 天数<=300）
+        if m_sales >= 60 and reviews >= 15 and price >= 800 and days_since_creation <= 300:
+            valid_product_count += 1
 
         # 构造 Raw Payload (对齐 V2.0 Schema)
         raw_payloads.append({
@@ -277,8 +312,15 @@ def process_rpa_data(task_id=None, input_file=None):
             "monthly_sales": m_sales, "reviews": reviews, "price": price,
             "days_since_creation": days_since_creation,
             "created_dt": created_dt_str.split(' ')[0] if created_dt_str else "N/A",
-            "total_score": total_score, "cat_path": cat_path
+            "total_score": total_score, "cat_path": cat_path,
+            # 哥，存一下各项因子得分，Sheet 1 要用
+            "s_sales": s_sales, "s_reviews": s_reviews, "s_price": s_price,
+            "s_days_per_review": s_days_per_review, "s_avg_sales": s_avg_sales
         })
+
+    # 哥，把最终统计的有效数塞进大盘数据
+    niche_stats["valid_product_count"] = valid_product_count
+    print(f"[STATS] 有效产品数统计完成: {valid_product_count}")
 
     # 批量同步至数据库 (环境分流)
     if raw_payloads:
@@ -307,11 +349,12 @@ def process_rpa_data(task_id=None, input_file=None):
                     "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False),
                     "id": final_task_id
                 }
+                # 哥，这儿得显式带上 ID，防止 psycopg2 报错
                 cursor.execute("UPDATE analysis_tasks SET category_id=%(category_id)s, category_stats=%(category_stats)s, trend_data=%(trend_data)s, up_categories=%(up_categories)s, status='completed' WHERE id=%(id)s", final_update)
                 
                 conn.commit()
                 cursor.close()
-                print(f"[SUCCESS] 本地 PostgreSQL 同步完成！")
+                print(f"[SUCCESS] 本地 PostgreSQL 业务数据同步完成！")
             else:
                 # 保持原有的 Supabase 分批搬运逻辑
                 BATCH_SIZE = 25
@@ -336,34 +379,112 @@ def process_rpa_data(task_id=None, input_file=None):
 
     # 3. 产生 Excel 报告
     processed_results.sort(key=lambda x: x['total_score'], reverse=True)
-    output_filename = f"Report_{cat_name}_{datetime.now().strftime('%m%d_%H%M')}.xlsx"
-    output_path = os.path.join(OUTPUT_DIR, output_filename)
+    # 哥，文件名格式：分类名_日期
+    now_date = datetime.now().strftime('%Y%m%d')
+    output_filename = f"{cat_name}_{now_date}.xlsx"
+    
+    # 哥，文件夹不存在的话保存会炸，咱们得先建好
+    excel_dir = os.path.join(OUTPUT_DIR, "excel")
+    os.makedirs(excel_dir, exist_ok=True)
+    output_path = os.path.join(excel_dir, output_filename)
     
     try:
         from openpyxl import Workbook
-        wb = Workbook(); ws = wb.active
-        headers = ['日期', '品类', '图', '月销', '评论', '售价', '单品均销', '上架', '天数', '评分', '链接']
-        for col, h in enumerate(headers, 1): ws.cell(row=1, column=col, value=h)
+        wb = Workbook()
+        
+        # --- Sheet 1: 指标评分 (核心分析表) ---
+        ws1 = wb.active
+        ws1.title = "指标评分"
+        # 哥，按照您的最新要求调整字段
+        headers1 = ['日期', '品类', '图', '链接', '月销评分', '评论评分', '售价评分', '上架天数/评论比值评分', '销品比评分', 'CR3集中度', '总得分']
+        for col, h in enumerate(headers1, 1):
+            ws1.cell(row=1, column=col, value=h)
+        
+        cr3_val = niche_stats.get('cr3', 'N/A')
+        
+        # --- 哥，高能预警：开始并行下载 160 张图片，由于是断网高发区，这里开 15 个线程顶住 ---
+        print(f"[SYNC] 正在并行下载 {len(processed_results)} 张商品图片 (15 Threads)...")
+        img_tasks = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+            # 建立 SKU 到图片的映射，方便后续插入 Sheet
+            future_to_sku = {executor.submit(download_image, p['image_url'], p['sku']): p['sku'] for p in processed_results}
+            sku_to_local_path = {}
+            for future in concurrent.futures.as_completed(future_to_sku):
+                sku = future_to_sku[future]
+                try:
+                    sku_to_local_path[sku] = future.result()
+                except:
+                    sku_to_local_path[sku] = None
+        
         for i, p in enumerate(processed_results, start=2):
-            ws.row_dimensions[i].height = 60
-            ws.cell(row=i, column=1, value=datetime.now().strftime("%Y-%m-%d"))
-            ws.cell(row=i, column=2, value=p['cat_path'])
-            img_path = download_image(p['image_url'], p['sku'])
+            ws1.row_dimensions[i].height = 80 # 大图展示
+            ws1.cell(row=i, column=1, value=datetime.now().strftime("%Y-%m-%d"))
+            ws1.cell(row=i, column=2, value=p['cat_path'])
+            
+            # 链接 (移到前面)
+            ws1.cell(row=i, column=4, value=p['url'])
+            
+            # 从刚才并行下载的 Map 里直接拿路径，不再串行等待
+            img_path = sku_to_local_path.get(p['sku'])
             if img_path:
                 try:
-                    img = OpenPyxlImage(img_path); img.width, img.height = 70, 70
-                    ws.add_image(img, f"C{i}")
-                except: ws.cell(row=i, column=3, value="Err")
-            ws.cell(row=i, column=4, value=p['monthly_sales'])
-            ws.cell(row=i, column=5, value=p['reviews'])
-            ws.cell(row=i, column=6, value=p['price'])
-            ws.cell(row=i, column=7, value=f"{cat_ratio:.1f}")
-            ws.cell(row=i, column=8, value=p['created_dt'])
-            ws.cell(row=i, column=9, value=p['days_since_creation'])
-            ws.cell(row=i, column=10, value=p['total_score'])
-            ws.cell(row=i, column=11, value=p['url'])
+                    img = OpenPyxlImage(img_path)
+                    img.width, img.height = 100, 100
+                    ws1.add_image(img, f"C{i}")
+                except:
+                    ws1.cell(row=i, column=3, value="图片损坏")
+            else:
+                ws1.cell(row=i, column=3, value="下载失败/无网")
+            
+            # 这里需要各个子评分，由于前面循环里没存，这里重新算一下或者从 processed_results 结构里取
+            # 哥，我回头在前面循环把子评分也塞进 processed_results 里，这里先直接取
+            ws1.cell(row=i, column=5, value=p.get('s_sales', 0))
+            ws1.cell(row=i, column=6, value=p.get('s_reviews', 0))
+            ws1.cell(row=i, column=7, value=p.get('s_price', 0))
+            ws1.cell(row=i, column=8, value=p.get('s_days_per_review', 0))
+            ws1.cell(row=i, column=9, value=p.get('s_avg_sales', 0))
+            ws1.cell(row=i, column=10, value=cr3_val) # CR3 是类目维度的
+            ws1.cell(row=i, column=11, value=p['total_score'])
+
+        # --- Sheet 2: 原始商品数据 ---
+        ws2 = wb.create_sheet("原始商品数据")
+        raw_headers = ["SKU", "商品名称", "品牌", "售价", "评分", "评论数", "商家数", "月销量", "月销售额", "上架日期", "类目名称", "链接"]
+        for col, h in enumerate(raw_headers, 1):
+            ws2.cell(row=1, column=col, value=h)
+            
+        for i, r in enumerate(raw_payloads, start=2):
+            ws2.cell(row=i, column=1, value=r['sku'])
+            ws2.cell(row=i, column=2, value=r['product_name'])
+            ws2.cell(row=i, column=3, value=r['brand_name'])
+            ws2.cell(row=i, column=4, value=r['sale_price'])
+            ws2.cell(row=i, column=5, value=r['product_rate'])
+            ws2.cell(row=i, column=6, value=r['review_qty'])
+            ws2.cell(row=i, column=7, value=r['merchant_count'])
+            ws2.cell(row=i, column=8, value=r['sale_qty'])
+            ws2.cell(row=i, column=9, value=r['sale_amount'])
+            ws2.cell(row=i, column=10, value=r['created_dt'])
+            ws2.cell(row=i, column=11, value=r['category_name'])
+            ws2.cell(row=i, column=12, value=r.get('product_url', ''))
+
         wb.save(output_path)
-        print(f"[SUCCESS] Excel 已生成: {output_path}")
+        print(f"[SUCCESS] Excel 已生成（指标评分校准完成）: {output_path}")
+
+        # 哥，最关键一步：把生成的 Excel 路径同步回数据库，前端下载按钮才能亮起来
+        # 注意此处的路径要对齐 API 下载接口 (相对路径)
+        try:
+            rel_path = f"output/excel/{output_filename}"
+            if ENV_MOD == "production":
+                cursor = conn.cursor()
+                cursor.execute("UPDATE analysis_tasks SET excel_path=%s WHERE id=%s", (rel_path, final_task_id))
+                conn.commit()
+                cursor.close()
+                print(f"[SYNC] Excel 路径已关联至数据库 (PG)")
+            else:
+                supabase.table("analysis_tasks").update({"excel_path": rel_path}).eq("id", final_task_id).execute()
+                print(f"[SYNC] Excel 路径已关联至数据库 (Supabase)")
+        except Exception as se:
+            print(f"[WARN] 关联 Excel 路径失败: {se}")
+
         return output_path
     except Exception as e:
         print(f"[ERROR] Excel 导出失败: {e}")

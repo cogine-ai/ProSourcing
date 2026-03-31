@@ -35,86 +35,87 @@ def export_to_excel(json_path, template_path, output_path):
         
     try:    
         wb = load_workbook(template_path)
-        ws = wb.active
+        ws1 = wb.active
+        ws1.title = "指标评分"
     except Exception as e:
         print(f"Error loading template: {e}")
         from openpyxl import Workbook
         wb = Workbook()
-        ws = wb.active
+        ws1 = wb.active
+        ws1.title = "指标评分"
         # Set headers if template is missing/corrupt
-        headers = ['文件生成时间', '产品类目树', '产品首图', '月销数量', '评论数量', '产品售价', '产品 所在细分类目的月销/该细分类目下的产品总数的比值', '上架时间', '上架时间距离当下时间间隔的天数/评论数的比值', 'CR3', '产品链接', '该细分类目下近6个月的销量曲线图', '得分总和']
+        headers = ['文件生成时间', '产品类目树', '产品首图', '月销数量', '评论数量', '产品售价', '销品比', '上架时间', '上架天数', 'CR3', '产品链接', '趋势', '得分总和']
         for col, h in enumerate(headers, 1):
-            ws.cell(row=1, column=col, value=h)
+            ws1.cell(row=1, column=col, value=h)
     
-    start_row = ws.max_row + 1
+    start_row = ws1.max_row + 1
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    # 哥，这里是“指标评分”页的填充逻辑 (按照选品报告指标部分校准)
     for i, p in enumerate(products, start=start_row):
-        sku = p.get('sku', f"unknown_{i}")
+        sku = p.get('sku', p.get('product_code', f"unknown_{i}"))
         
         # 1. 下载首图
         img_url = p.get('image_url', "")
+        if not img_url and 'preview_image_list' in p:
+            try:
+                imgs = p['preview_image_list']
+                if isinstance(imgs, str): imgs = json.loads(imgs)
+                if imgs: img_url = imgs[0].get('large')
+            except: pass
+
         img_path = get_image_path(img_url, sku, "d:/item/ProSourcing/output/images")
         
-        # 2. 查找曲线图 (Algatop)
-        chart_path = f"d:/item/ProSourcing/output/charts/chart_{sku}.png"
-        
         # 3. 填充基础数据
-        ws.cell(row=i, column=1, value=now_str)
-        ws.cell(row=i, column=2, value="Спорт и отдых > Йога > Коврики")
-        # 留空 C 列给首图
+        ws1.cell(row=i, column=1, value=now_str)
+        ws1.cell(row=i, column=2, value=p.get('category_name', p.get('cat_path', "Unknown")))
+        # C 列留给图，D 列留给链接
+        ws1.cell(row=i, column=4, value=p.get('url', p.get('product_url', "")))
         
-        # 月销数量如果是0，做预估
-        reviews = int(p.get('reviews', 0))
-        sales = p.get('sales')
-        if not sales:
-            sales = reviews * 3 if reviews > 0 else 0
-            
-        ws.cell(row=i, column=4, value=sales)
-        ws.cell(row=i, column=5, value=reviews)
-        ws.cell(row=i, column=6, value=p.get('price', "0"))
-        ws.cell(row=i, column=7, value="分析中(缺类目总数)")
-        ws.cell(row=i, column=8, value=p.get('listing_date', "N/A"))
-        
-        days_per_review = p.get('scores', {}).get('days_per_review_score', "N/A")
-        if p.get('listing_date', "N/A") != "N/A":
-             # 这里可以实际计算，暂时用 score
-             pass
-             
-        ws.cell(row=i, column=9, value=days_per_review)
-        ws.cell(row=i, column=10, value=p.get('cr3', "N/A"))
-        ws.cell(row=i, column=11, value="https://kaspi.kz" + p.get('url', ""))
-        # 留空 L 列给曲线图
-        ws.cell(row=i, column=13, value=p.get('total_score', 0))
+        # 指标评分部分 (Sheet 1 展示得分)
+        ws1.cell(row=i, column=5, value=p.get('s_sales', 0))
+        ws1.cell(row=i, column=6, value=p.get('s_reviews', 0))
+        ws1.cell(row=i, column=7, value=p.get('s_price', 0))
+        ws1.cell(row=i, column=8, value=p.get('s_days_per_review', 0))
+        ws1.cell(row=i, column=9, value=p.get('s_avg_sales', 0))
+        ws1.cell(row=i, column=10, value=p.get('cr3', "N/A"))
+        ws1.cell(row=i, column=11, value=p.get('total_score', 0))
         
         # 4. 插入图片
-        ws.row_dimensions[i].height = 60 # 设置行高
+        ws1.row_dimensions[i].height = 80 # 设置行高
         
         if img_path and os.path.exists(img_path):
             img = Image(img_path)
-            img.width, img.height = 60, 60
-            ws.add_image(img, f"C{i}")
-            ws.column_dimensions['C'].width = 12
+            img.width, img.height = 100, 100
+            ws1.add_image(img, f"C{i}")
+            ws1.column_dimensions['C'].width = 15
             
-        if os.path.exists(chart_path):
-            chart_img = Image(chart_path)
-            # 缩放到合适大小
-            chart_img.width, chart_img.height = 120, 60
-            ws.add_image(chart_img, f"L{i}")
-            ws.column_dimensions['L'].width = 20
-        else:
-            ws.cell(row=i, column=12, value="无数据")
-            
+    # --- Sheet 2: 原始商品数据 ---
+    ws2 = wb.create_sheet("原始商品数据")
+    raw_headers = ["SKU", "商品名称", "品牌", "售价", "评论数", "月销量", "创建时间", "链接"]
+    for col, h in enumerate(raw_headers, 1):
+        ws2.cell(row=1, column=col, value=h)
+        
+    for i, p in enumerate(products, start=2):
+        ws2.cell(row=i, column=1, value=p.get('sku', p.get('product_code')))
+        ws2.cell(row=i, column=2, value=p.get('product_name', p.get('name')))
+        ws2.cell(row=i, column=3, value=p.get('brand_name', p.get('brand')))
+        ws2.cell(row=i, column=4, value=p.get('sale_price', p.get('price')))
+        ws2.cell(row=i, column=5, value=p.get('review_qty', p.get('reviews')))
+        ws2.cell(row=i, column=6, value=p.get('sale_qty', p.get('monthly_sales')))
+        ws2.cell(row=i, column=7, value=p.get('created_dt', p.get('listing_date')))
+        ws2.cell(row=i, column=8, value=p.get('product_url', p.get('url')))
+
     wb.save(output_path)
     print(f"Excel report successfully generated with images at {output_path}")
 
 if __name__ == "__main__":
-    json_path = "d:/item/ProSourcing/output/enriched_results.json"
-    template_path = "d:/item/ProSourcing/AI产品开发.xlsx"
-    output_path = "d:/item/ProSourcing/output/Yoga_Mat_Analysis_Report_v2.xlsx"
+    json_path = "d:/item/ProSourcing/output/json/enriched_results.json"
+    template_path = "d:/item/ProSourcing/templates/AI产品开发.xlsx"
+    output_path = "d:/item/ProSourcing/output/excel/Yoga_Mat_Analysis_Report_v2.xlsx"
     
     if not os.path.exists(json_path):
         # 降级使用 Kaspi 结果
-        json_path = "d:/item/ProSourcing/output/kaspi_results.json"
+        json_path = "d:/item/ProSourcing/output/json/kaspi_results.json"
         
     export_to_excel(json_path, template_path, output_path)
