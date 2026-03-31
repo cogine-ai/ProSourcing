@@ -115,13 +115,20 @@ const StatCard = ({ label, value, icon }) => (
 // --- 原子组件：类目卡片 ---
 const getCategoryDisplayName = (cat) => {
     if (!cat) return "未知品类";
-    // 如果是对象结构 (cat_stats)，优先找 category_name 并拆分
-    const fullName = cat?.category_name || cat?.category || "";
+    
+    // 哥，优先拿字段里存好的中文
+    const cnName = cat?.name_cn || cat?.category_name_cn || cat?.category_cn;
+    if (cnName && !anyCyrillic(cnName)) return cnName;
+
+    // 针对对象结构 (cat_stats)，或者带括号的格式 "俄文 (中文)"
+    const fullName = cat?.category_name || cat?.category || cat?.name || "";
+    
+    // 尝试匹配括号内的中文
     const match = fullName.match(/\((.*?)\)/);
     if (match) return match[1];
 
-    // 兜底：如果是 RPA采集_... 这种带下划线的，尝试拆分
-    if (fullName.includes('_')) {
+    // 如果包含 "RPA采集_" 前缀的，通常格式是 RPA采集_俄文(中文)_日期
+    if (fullName.startsWith('RPA采集_')) {
         const parts = fullName.split('_');
         if (parts.length > 1) {
             const subMatch = parts[1].match(/\((.*?)\)/);
@@ -130,7 +137,13 @@ const getCategoryDisplayName = (cat) => {
         }
     }
 
-    return fullName.split('-')[0];
+    // 兜底：如果还是俄文，且有横杠，尝试拆分
+    return fullName.split(' - ')[0];
+};
+
+// 哥，辅助函数检测俄文字符
+const anyCyrillic = (str) => {
+    return /[а-яА-ЯЁё]/.test(str);
 };
 
 const CategoryCard = ({ cat }) => {
