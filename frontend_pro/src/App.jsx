@@ -703,7 +703,9 @@ const App = () => {
                                             <div className="w-1 h-6 bg-primary rounded-full"></div>
                                             全量一级分类运行详情
                                         </h3>
-                                        <div className="text-[10px] font-bold text-muted-foreground uppercase bg-muted/20 px-3 py-1 rounded-full border border-border">Real-time Syncing</div>
+                                        <div className="text-[10px] font-bold text-muted-foreground uppercase bg-muted/20 px-3 py-1 rounded-full border border-border">
+                                            最后更新: {formatDateTime(globalStats.last_updated)}
+                                        </div>
                                     </div>
                                     <div className={`grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 ${PDL.spacing.gap}`}>
                                         {categories.map((cat, i) => <CategoryCard key={i} cat={cat} />)}

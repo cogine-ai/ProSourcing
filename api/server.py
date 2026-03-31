@@ -804,9 +804,14 @@ def get_global_stats():
     res4 = sb.table("products_raw_data").select("sku", count="exact").limit(1).execute()
     skus = res4.count if res4.count is not None else 0
     sku_display = f"{skus / 1000:.1f}K" if skus > 1000 else str(skus)
+    # 哥，获取大盘最后同步时间 (取各品类统计中最晚的更新日期)
+    res_last = sb.table("algatop_top_category_stats").select("updated_at").order("updated_at", desc=True).limit(1).execute()
+    last_val = res_last.data[0]['updated_at'] if res_last.data else datetime.now().isoformat()
+
     return {
         "top_cat_count": top_cat, "min_cat_count": min_cat,
-        "sku_count": sku_display, "report_count": reports
+        "sku_count": sku_display, "report_count": reports,
+        "last_updated": last_val
     }
 
 @app.get('/api/kaspi/tree')
