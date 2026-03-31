@@ -834,29 +834,21 @@ def get_kaspi_global_tree():
         date_map = {}
         if all_leaf_ids:
             try:
-<<<<<<< HEAD
-                # 哥，这里按 created_at 倒序排列，保证前面拿到的就是每个 ID 最新的
-=======
+
                 # 哥，针对本地 PG 优化：只查必要字段，且按 created_at 倒序排列
->>>>>>> main
+
                 res_tasks = sb.table("analysis_tasks").select("category_id, created_at").eq("status", "completed").order("created_at", desc=True).execute()
                 for t in res_tasks.data:
                     cid = str(t.get('category_id')) if t.get('category_id') else None
                     dt = t.get('created_at')
-<<<<<<< HEAD
-                    if cid and dt and cid not in date_map:
-                        # 只取日期部分 yyyy-mm-dd
-                        date_map[cid] = dt[:10]
-            except Exception as te:
-                print(f"[TREE DATE ERROR] {te}")
-=======
+
                     # 我们是倒序查的，所以第一个碰到的就是最新的。如果已经有了，就不更新
                     if cid and dt and cid not in date_map:
                         # 只取日期部分 yyyy-mm-dd
                         date_map[cid] = dt[:10]
             except Exception as eTree:
                 print(f"[TREE DATE ERROR] {eTree}")
->>>>>>> main
+
 
         p_map = {}
         for c in all_cats:
