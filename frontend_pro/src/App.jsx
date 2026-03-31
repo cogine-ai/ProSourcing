@@ -582,7 +582,7 @@ const App = () => {
                         <div className="w-9 h-9 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold">Y</div>
                         <div className="min-w-0">
                             <p className="text-[10px] text-muted-foreground font-bold uppercase truncate tracking-tight">System Admin</p>
-                            <p className="text-sm font-bold truncate text-foreground">哥，你好</p>
+                            <p className="text-sm font-bold truncate text-foreground">欢迎使用 ProSourcing 系统</p>
                         </div>
                     </div>
                 </div>
