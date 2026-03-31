@@ -3,7 +3,7 @@ import uuid
 import asyncio
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import create_client, Client
@@ -834,16 +834,16 @@ def get_kaspi_global_tree():
         date_map = {}
         if all_leaf_ids:
             try:
-                # 获取所有成功过任务的最新时间
-                # 哥，这里拉取全部成功过的，后续直接在内存里覆盖，保证拿到的是每个 ID 最后的那个 created_at
-                res_tasks = sb.table("analysis_tasks").select("category_id, created_at").eq("status", "completed").order("created_at", desc=False).execute()
+                # 哥，这里按 created_at 倒序排列，保证前面拿到的就是每个 ID 最新的
+                res_tasks = sb.table("analysis_tasks").select("category_id, created_at").eq("status", "completed").order("created_at", desc=True).execute()
                 for t in res_tasks.data:
                     cid = str(t.get('category_id')) if t.get('category_id') else None
                     dt = t.get('created_at')
-                    if cid and dt:
+                    if cid and dt and cid not in date_map:
                         # 只取日期部分 yyyy-mm-dd
                         date_map[cid] = dt[:10]
-            except: pass
+            except Exception as te:
+                print(f"[TREE DATE ERROR] {te}")
 
         p_map = {}
         for c in all_cats:
@@ -870,7 +870,7 @@ def get_kaspi_global_tree():
         return []
 
 @app.post('/api/kaspi/tasks/batch')
-def create_kaspi_tasks_batch(item_codes: list[str], background_tasks: BackgroundTasks):
+def create_kaspi_tasks_batch(item_codes: List[str] = Body(...), background_tasks: BackgroundTasks = BackgroundTasks()):
     from core.final_pipeline import supabase as sb
     
     total_requested = len(item_codes)
