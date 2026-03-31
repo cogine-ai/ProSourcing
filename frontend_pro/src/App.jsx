@@ -867,27 +867,26 @@ const App = () => {
                                         {/* 分页导航 (Sticky at the bottom) */}
                                         <div className="shrink-0 sticky bottom-0 bg-background/90 backdrop-blur-md border-t border-border/20 py-6 mt-4 z-20 flex items-center justify-between animate-in fade-in slide-in-from-bottom-4 duration-700 px-2">
                                             <div className="flex flex-col">
-                                                <p className="text-[10px] font-bold text-muted-foreground/40 uppercase tracking-[0.2em] mb-1">Pagination Control</p>
                                                 <p className="text-xs font-black text-foreground">
-                                                    Showing <span className="text-primary">{tasks.length}</span> of <span className="text-primary">{totalTasks}</span> items 
+                                                    共 <span className="text-primary">{totalTasks}</span> 项报告 
                                                     <span className="mx-3 text-muted-foreground/20">|</span> 
-                                                    Page {reportPage} / {Math.ceil(totalTasks / 20) || 1}
+                                                    第 {reportPage} / {Math.ceil(totalTasks / 20) || 1} 页
                                                 </p>
                                             </div>
                                             <div className="flex gap-3">
                                                 <button 
                                                     disabled={reportPage === 1}
                                                     onClick={() => { setReportPage(p => Math.max(1, p - 1)); window.scrollTo({top: 0, behavior: 'smooth'}); }}
-                                                    className="flex items-center justify-center w-32 py-3 bg-card border border-border rounded-xl hover:bg-accent hover:border-primary/50 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-sm active:scale-95"
+                                                    className="flex items-center justify-center w-32 py-3 bg-card border border-border rounded-xl hover:bg-accent hover:border-primary/50 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-sm active:scale-100"
                                                 >
-                                                    <ChevronLeft size={16} className="mr-1" /> Previous
+                                                    <ChevronLeft size={16} className="mr-1" /> 上一页
                                                 </button>
                                                 <button 
                                                     disabled={reportPage >= Math.ceil(totalTasks / 20)}
                                                     onClick={() => { setReportPage(p => p + 1); window.scrollTo({top: 0, behavior: 'smooth'}); }}
-                                                    className="flex items-center justify-center w-32 py-3 bg-primary text-primary-foreground border border-primary rounded-xl hover:opacity-90 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95"
+                                                    className="flex items-center justify-center w-32 py-3 bg-primary text-primary-foreground border border-primary rounded-xl hover:opacity-90 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-100"
                                                 >
-                                                    Next <ChevronRight size={16} className="ml-1" />
+                                                    下一页 <ChevronRight size={16} className="ml-1" />
                                                 </button>
                                             </div>
                                         </div>
