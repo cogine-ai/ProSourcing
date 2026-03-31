@@ -832,18 +832,25 @@ def get_kaspi_global_tree():
         # 哥，针对所有叶子节点，一次性查出它们最近的成功采集时间
         all_leaf_ids = [str(c['algatop_id']) for c in all_cats if c.get('is_leaf')]
         date_map = {}
-        if all_leaf_ids:
-            try:
-                # 获取所有成功过任务的最新时间
-                # 哥，这里拉取全部成功过的，后续直接在内存里覆盖，保证拿到的是每个 ID 最后的那个 created_at
-                res_tasks = sb.table("analysis_tasks").select("category_id, created_at").eq("status", "completed").order("created_at", desc=False).execute()
-                for t in res_tasks.data:
-                    cid = str(t.get('category_id')) if t.get('category_id') else None
-                    dt = t.get('created_at')
-                    if cid and dt:
-                        # 只取日期部分 yyyy-mm-dd
-                        date_map[cid] = dt[:10]
-            except: pass
+            # 哥，采纳 CodeRabbit 建议：增加叶子类目过滤，并改用 updated_at (更准确的完成时间)
+            res_tasks = (
+                sb.table("analysis_tasks")
+                .select("category_id, updated_at, created_at")
+                .eq("status", "completed")
+                .in_("category_id", all_leaf_ids)
+                .order("updated_at", desc=True)
+                .execute()
+            )
+            for t in res_tasks.data:
+                cid = str(t.get('category_id')) if t.get('category_id') else None
+                dt = t.get('updated_at') or t.get('created_at')
+                # 倒序查询，命中即最新
+                if cid and dt and cid not in date_map:
+                    # 只取日期部分 yyyy-mm-dd
+                    date_map[cid] = dt[:10]
+            except Exception as eTree:
+                print(f"[TREE DATE ERROR] {eTree}")
+
 
         p_map = {}
         for c in all_cats:
@@ -1005,13 +1012,13 @@ def seed_database_on_startup():
                     master_list = data.get('master', [])
                     for i in range(0, len(master_list), 500):
                         batch = master_list[i:i+500]
-                        sb.table("algatop_categories_master").insert(batch).execute()
+                    sb.table("algatop_categories_master").insert(batch).execute()
                     
                     # 批量导入 Stats
                     stats_list = data.get('stats', [])
                     for i in range(0, len(stats_list), 500):
                         batch = stats_list[i:i+500]
-                        sb.table("algatop_top_category_stats").insert(batch).execute()
+                    sb.table("algatop_top_category_stats").insert(batch).execute()
                     
                     print(f"✅ Successfully seeded {len(master_list)} categories and {len(stats_list)} stats.")
 
@@ -1040,7 +1047,7 @@ def seed_database_on_startup():
                         })
                     
                     for i in range(0, len(compat_payload), 500):
-                        sb.table("categories").insert(compat_payload[i:i+500]).execute()
+                    sb.table("categories").insert(compat_payload[i:i+500]).execute()
                     print(f"✅ Successfully synced {len(compat_payload)} records to categories.")
             
             break 

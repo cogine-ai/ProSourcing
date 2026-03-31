@@ -26,6 +26,7 @@ class PGQueryBuilder:
     def __init__(self, conn_url, table_name):
         self.conn_url = conn_url
         self._table = table_name
+        self._columns = "*"
         self._where = []
         self._order = None
         self._limit = None
@@ -35,6 +36,7 @@ class PGQueryBuilder:
         self._count_mode = None
 
     def select(self, columns="*", count=None):
+        self._columns = columns
         self._count_mode = count
         return self
 
@@ -157,7 +159,7 @@ class PGQueryBuilder:
                     Response = namedtuple('Response', ['data', 'count'])
                     return Response(data=[], count=count_val)
 
-                query = f"SELECT * FROM {self._table}" + where_str
+                query = f"SELECT {self._columns} FROM {self._table}" + where_str
                 if self._order: query += f" ORDER BY {self._order}"
                 if self._limit: query += f" LIMIT {self._limit}"
                 if self._offset: query += f" OFFSET {self._offset}"
