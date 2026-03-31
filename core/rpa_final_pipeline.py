@@ -204,6 +204,10 @@ def process_rpa_data(task_id=None, input_file=None):
         # 品牌数：严格使用 Algatop 原始字段 (sale_brand_qty)
         brand_count_original = niche_stats.get("sale_brand_qty") or 0
         
+        # 哥，确保汇总数和总数都有值，别让前端显示 "--"
+        if not niche_stats.get("sale_product_qty"):
+            niche_stats["sale_product_qty"] = len(products)
+            
         # CR3 计算 (爬取前三之和 / Algatop大盘总销售额)
         cr3_ratio = (top3_revenue / total_revenue_original * 100) if total_revenue_original and total_revenue_original > 0 else 0
         
@@ -215,7 +219,7 @@ def process_rpa_data(task_id=None, input_file=None):
         niche_stats["cr3"] = f"{cr3_ratio:.1f}%"
         niche_stats["valid_product_count"] = 0 # 占位，稍后由循环统计覆盖
         
-        print(f"[STATS] 指标校准：Top3={top3_revenue}, 品牌数(原装)={brand_count_original}, 卖家数={niche_stats['sale_merchant_qty']}, CR3={niche_stats['cr3']}")
+        print(f"[STATS] 指标校准：Top3={top3_revenue}, 品牌数(原装)={brand_count_original}, 卖家数={niche_stats['sale_merchant_qty']}, CR3={niche_stats['cr3']}, 总产品数={niche_stats['sale_product_qty']}")
 
     cat_sales = niche_stats.get("sale_qty") or 0
     cat_product_count = niche_stats.get("sale_product_qty") or 0
