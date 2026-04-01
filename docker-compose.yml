@@ -17,10 +17,7 @@ services:
     restart: always
 
   backend:
-    image: prosourcing-backend:v20260327
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
+    image: prosourcing_backend:latest
     container_name: prosourcing_backend
     environment:
       - DATABASE_URL=postgresql://${PG_USER:-postgres}:${PG_PASSWORD:-prosourcing123}@db:5432/${PG_DB:-prosourcing}
@@ -43,16 +40,14 @@ services:
     restart: always
 
   frontend:
-    image: prosourcing-frontend:v20260327
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
+    image: prosourcing_frontend:latest
     container_name: prosourcing_frontend
     ports:
       - "${FRONTEND_PORT:-80}:80"
     depends_on:
       - backend
     restart: always
+
 
 volumes:
   pgdata:
