@@ -153,6 +153,22 @@ const getTopCategoryZhLabel = (task, categories = []) => {
     return match?.name_cn || direct || '一级分类';
 };
 
+const buildReportPagination = (currentPage, totalPages) => {
+    if (totalPages <= 7) {
+        return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+
+    if (currentPage <= 4) {
+        return [1, 2, 3, 4, 5, 'ellipsis-right', totalPages];
+    }
+
+    if (currentPage >= totalPages - 3) {
+        return [1, 'ellipsis-left', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    }
+
+    return [1, 'ellipsis-left', currentPage - 1, currentPage, currentPage + 1, 'ellipsis-right', totalPages];
+};
+
 // 检测是否包含西里尔字符
 const anyCyrillic = (str) => {
     return /[\u0400-\u04FF]/.test(str);
@@ -220,6 +236,9 @@ const App = () => {
     const [filterReviews, setFilterReviews] = useState(15);
     const [filterMinPrice, setFilterMinPrice] = useState(800);
     const [sortBy, setSortBy] = useState('amount');
+    const reportPageSize = 20;
+    const totalReportPages = Math.max(1, Math.ceil(totalTasks / reportPageSize));
+    const reportPaginationItems = buildReportPagination(reportPage, totalReportPages);
 
     const forceNum = (v) => {
         if (v === null || v === undefined) return 0;
@@ -394,6 +413,12 @@ const App = () => {
         return () => clearInterval(interval);
     }, [reportPage, reportSearch, reportTime, reportStatus, reportTopCat]);
 
+    useEffect(() => {
+        if (reportPage > totalReportPages) {
+            setReportPage(totalReportPages);
+        }
+    }, [reportPage, totalReportPages]);
+
     const fetchAlgoConfig = async () => {
         try {
             const res = await fetch(`${API_BASE}/api/algo/config`);
@@ -491,6 +516,16 @@ const App = () => {
             setTasks(rows);
             setTotalTasks(total);
         } catch (err) { console.error("Fetch history failed", err); }
+    };
+
+    const scrollReportListToTop = () => {
+        reportListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const goToReportPage = (page) => {
+        if (page === reportPage || page < 1 || page > totalReportPages) return;
+        setReportPage(page);
+        scrollReportListToTop();
     };
 
     // 获取抽屉类目树（一级分类）
@@ -929,26 +964,46 @@ const App = () => {
                                                 <p className="text-xs font-black text-foreground">
                                                     共<span className="text-primary">{totalTasks}</span> 项报告
                                                     <span className="mx-3 text-muted-foreground/20">|</span> 
-                                                    第{reportPage} / {Math.ceil(totalTasks / 20) || 1} 页
+                                                    第{reportPage} / {totalReportPages} 页
                                                 </p>
                                             </div>
-                                            <div className="flex gap-3">
+                                            <div className="flex items-center gap-2">
                                                 <button 
                                                     disabled={reportPage === 1}
-                                                    onClick={() => { 
-                                                        setReportPage(p => Math.max(1, p - 1)); 
-                                                        reportListRef.current?.scrollTo({top: 0, behavior: 'smooth'}); 
-                                                    }}
+                                                    onClick={() => goToReportPage(reportPage - 1)}
                                                     className="flex items-center justify-center w-32 py-3 bg-card border border-border rounded-xl hover:bg-accent hover:border-primary/50 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-sm active:scale-95"
                                                 >
                                                     <ChevronLeft size={16} className="mr-1" /> 上一页
                                                 </button>
+                                                <div className="flex items-center gap-2">
+                                                    {reportPaginationItems.map((item, index) => (
+                                                        typeof item === 'number' ? (
+                                                            <button
+                                                                key={item}
+                                                                type="button"
+                                                                onClick={() => goToReportPage(item)}
+                                                                aria-current={item === reportPage ? 'page' : undefined}
+                                                                className={`min-w-11 h-11 px-3 rounded-xl border text-sm font-black transition-all shadow-sm active:scale-95 ${
+                                                                    item === reportPage
+                                                                        ? 'bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/20'
+                                                                        : 'bg-card border-border text-foreground hover:bg-accent hover:border-primary/40'
+                                                                }`}
+                                                            >
+                                                                {item}
+                                                            </button>
+                                                        ) : (
+                                                            <span
+                                                                key={`${item}-${index}`}
+                                                                className="flex items-center justify-center min-w-11 h-11 text-sm font-black text-muted-foreground"
+                                                            >
+                                                                ...
+                                                            </span>
+                                                        )
+                                                    ))}
+                                                </div>
                                                 <button 
-                                                    disabled={reportPage >= Math.ceil(totalTasks / 20)}
-                                                    onClick={() => { 
-                                                        setReportPage(p => p + 1); 
-                                                        reportListRef.current?.scrollTo({top: 0, behavior: 'smooth'}); 
-                                                    }}
+                                                    disabled={reportPage >= totalReportPages}
+                                                    onClick={() => goToReportPage(reportPage + 1)}
                                                     className="flex items-center justify-center w-32 py-3 bg-primary text-primary-foreground border border-primary rounded-xl hover:opacity-90 disabled:opacity-20 disabled:grayscale transition-all font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95"
                                                 >
                                                     下一页<ChevronRight size={16} className="ml-1" />
