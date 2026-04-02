@@ -830,9 +830,14 @@ def get_kaspi_global_tree():
         if not all_cats: return []
 
         # 哥，针对所有叶子节点，一次性查出它们最近的成功采集时间
-        all_leaf_ids = [str(c['algatop_id']) for c in all_cats if c.get('is_leaf')]
+        all_leaf_ids = sorted({
+            v
+            for c in all_cats if c.get('is_leaf')
+            for v in (str(c['algatop_id']), str(c['algatop_id']).zfill(5))
+        })
         date_map = {}
             # 哥，采纳 CodeRabbit 建议：增加叶子类目过滤，并改用 updated_at (更准确的完成时间)
+        try:
             res_tasks = (
                 sb.table("analysis_tasks")
                 .select("category_id, updated_at, created_at")
@@ -848,8 +853,8 @@ def get_kaspi_global_tree():
                 if cid and dt and cid not in date_map:
                     # 只取日期部分 yyyy-mm-dd
                     date_map[cid] = dt[:10]
-            except Exception as eTree:
-                print(f"[TREE DATE ERROR] {eTree}")
+        except Exception as eTree:
+            print(f"[TREE DATE ERROR] {eTree}")
 
 
         p_map = {}
@@ -861,7 +866,7 @@ def get_kaspi_global_tree():
                 'title': c.get('name_cn') or c.get('name_ru') or str(c['algatop_id']),
                 'parent_code': pid,
                 'is_leaf': c.get('is_leaf', False),
-                'last_crawl_date': date_map.get(str(c['algatop_id']))
+                'last_crawl_date': date_map.get(str(c['algatop_id'])) or date_map.get(str(c['algatop_id']).zfill(5))
             }
             p_map.setdefault(pid, []).append(node)
 
@@ -880,10 +885,29 @@ def get_kaspi_global_tree():
 def create_kaspi_tasks_batch(item_codes: List[str] = Body(...), background_tasks: BackgroundTasks = BackgroundTasks()):
     from core.final_pipeline import supabase as sb
     
-    total_requested = len(item_codes)
+    requested_codes = [str(c).strip() for c in item_codes if str(c).strip()]
+    total_requested = len(requested_codes)
+    if total_requested == 0:
+        return {
+            'success': False,
+            'message': 'No valid category codes provided',
+            'count': 0,
+            'total_requested': 0,
+            'filtered_duplicate': 0,
+            'actual_executed': 0
+        }
+
+    def norm_code(v: str) -> str:
+        s = str(v).strip().lstrip('0')
+        return s if s else '0'
+
+    dedup_map = {}
+    for c in requested_codes:
+        dedup_map.setdefault(norm_code(c), c)
+    dedup_requested_codes = list(dedup_map.values())
     
     # 哥，先把这些 ID 的中文名全副武装好，优先去 master 主表拿最正宗的翻译
-    res_master = sb.table('algatop_categories_master').select('algatop_id, name_cn, name_ru').in_('algatop_id', item_codes).execute()
+    res_master = sb.table('algatop_categories_master').select('algatop_id, name_cn, name_ru').in_('algatop_id', dedup_requested_codes).execute()
     
     code_map = {}
     # 先用 master 表的数据填充
@@ -895,7 +919,7 @@ def create_kaspi_tasks_batch(item_codes: List[str] = Body(...), background_tasks
         code_map[algatop_id] = cn_name if cn_name and not any(u'\u0400' <= c <= u'\u04FF' for c in cn_name) else (row.get('name_ru') or algatop_id)
 
     # 如果 master 里没找全，再去 global_category_dict 碰碰运气
-    missing_codes = [c for c in item_codes if c not in code_map]
+    missing_codes = [c for c in dedup_requested_codes if c not in code_map]
     if missing_codes:
         res_dict = sb.table('global_category_dict').select('*').in_('algatop_id', missing_codes).execute()
         for row in res_dict.data:
@@ -909,10 +933,33 @@ def create_kaspi_tasks_batch(item_codes: List[str] = Body(...), background_tasks
 
     # 哥，15天同类目拦截过滤！防止重复发起资源浪费
     recent_limit = (datetime.now() - timedelta(days=15)).isoformat()
-    recent = sb.table("analysis_tasks").select("category_id").in_("category_id", item_codes).eq("status", "completed").gte("created_at", recent_limit).execute()
-    recent_ids = {r['category_id'] for r in recent.data if r.get('category_id')}
-    
-    filtered_codes = [c for c in item_codes if c not in recent_ids]
+    lookup_codes = sorted({
+        v
+        for c in dedup_requested_codes
+        for v in (str(c), str(c).zfill(5), norm_code(c))
+    })
+    recent = (
+        sb.table("analysis_tasks")
+        .select("category_id,status,created_at")
+        .in_("category_id", lookup_codes)
+        .execute()
+    )
+    blocked_status = {"pending", "running", "crawling", "reporting", "processing", "retrying"}
+    blocked_norm_ids = set()
+    for r in (recent.data or []):
+        cid = r.get("category_id")
+        if not cid:
+            continue
+        cid_norm = norm_code(cid)
+        st = (r.get("status") or "").lower()
+        created_at = r.get("created_at") or ""
+        if st in blocked_status:
+            blocked_norm_ids.add(cid_norm)
+            continue
+        if st == "completed" and created_at >= recent_limit:
+            blocked_norm_ids.add(cid_norm)
+
+    filtered_codes = [c for c in dedup_requested_codes if norm_code(c) not in blocked_norm_ids]
     filtered_count = total_requested - len(filtered_codes)
 
     payload = []
@@ -1047,7 +1094,7 @@ def seed_database_on_startup():
                         })
                     
                     for i in range(0, len(compat_payload), 500):
-                    sb.table("categories").insert(compat_payload[i:i+500]).execute()
+                        sb.table("categories").insert(compat_payload[i:i+500]).execute()
                     print(f"✅ Successfully synced {len(compat_payload)} records to categories.")
             
             break 
