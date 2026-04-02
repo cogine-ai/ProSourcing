@@ -413,6 +413,12 @@ const App = () => {
         return () => clearInterval(interval);
     }, [reportPage, reportSearch, reportTime, reportStatus, reportTopCat]);
 
+    useEffect(() => {
+        if (reportPage > totalReportPages) {
+            setReportPage(totalReportPages);
+        }
+    }, [reportPage, totalReportPages]);
+
     const fetchAlgoConfig = async () => {
         try {
             const res = await fetch(`${API_BASE}/api/algo/config`);
