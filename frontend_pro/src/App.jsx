@@ -733,7 +733,7 @@ const App = () => {
                                             className="bg-card/50 border border-border rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-widest focus:outline-none appearance-none cursor-pointer hover:border-primary/30 transition-all min-w-[120px]"
                                         >
                                             <option value="all">全部分类</option>
-                                            {categories.map(c => <option key={c.category_id} value={c.name_cn || c.name_ru}>{c.name_cn || c.name_ru}</option>)}
+                                            {categories.map(c => <option key={c.category_id} value={c.name_ru || c.category_name || c.name_cn}>{c.name_cn || c.name_ru}</option>)}
                                         </select>
                                     </div>
                                 ) : null}

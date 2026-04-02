@@ -41,6 +41,67 @@ tasks_db = {}
 process_pool = {}
 browser_launch_lock = asyncio.Lock()
 
+
+def _extract_category_aliases(category_value):
+    aliases = set()
+    if category_value is None:
+        return aliases
+
+    if isinstance(category_value, str):
+        value = category_value.strip()
+        if not value:
+            return aliases
+        aliases.add(value)
+        if " (" in value and value.endswith(")"):
+            main_part, _, tail = value.partition(" (")
+            aliases.add(main_part.strip())
+            aliases.add(tail[:-1].strip())
+        return {alias for alias in aliases if alias}
+
+    if isinstance(category_value, dict):
+        for key in ("category_name", "name_ru", "name_cn", "category_cn", "name"):
+            value = category_value.get(key)
+            if isinstance(value, str) and value.strip():
+                aliases.update(_extract_category_aliases(value))
+        return aliases
+
+    return aliases
+
+
+def _normalize_up_categories(up_categories):
+    if not up_categories:
+        return []
+
+    if isinstance(up_categories, str):
+        raw = up_categories.strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+            if parsed:
+                return [parsed]
+        except json.JSONDecodeError:
+            return [raw]
+
+    if isinstance(up_categories, list):
+        return up_categories
+
+    return [up_categories]
+
+
+def _task_matches_top_category(task, top_category):
+    target_aliases = _extract_category_aliases(top_category)
+    if not target_aliases:
+        return True
+
+    for item in _normalize_up_categories(task.get("up_categories")):
+        if _extract_category_aliases(item) & target_aliases:
+            return True
+
+    return False
+
 class TaskRequest(BaseModel):
     category: str
 
@@ -106,8 +167,39 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
         
     if status and status != 'all':
         query = query.eq("status", status)
-        
+
     if top_category and top_category != 'all':
+        all_rows = []
+        batch_size = 1000
+        batch_index = 0
+
+        while True:
+            batch_res = query.select("*").order("created_at", desc=True).range(
+                batch_index * batch_size,
+                (batch_index + 1) * batch_size - 1
+            ).execute()
+            batch_rows = batch_res.data or []
+            all_rows.extend(batch_rows)
+
+            if len(batch_rows) < batch_size:
+                break
+
+            batch_index += 1
+
+        filtered_rows = [row for row in all_rows if _task_matches_top_category(row, top_category)]
+        data = filtered_rows[offset: offset + page_size]
+        total = len(filtered_rows)
+
+        for t in data:
+            if not t.get('duration') and t['status'] == 'completed':
+                try:
+                    t['duration'] = calculate_duration_from_logs(t['id'])
+                except:
+                    t['duration'] = "--"
+
+        return {"data": data, "total": total, "page": page, "page_size": page_size}
+        
+    if False and top_category and top_category != 'all':
         # 通过 supabase jsonb 的包含查询过滤含有该大类名的节点
         query = query.contains("up_categories", [{"category_name": top_category}])
     
