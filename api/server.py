@@ -816,6 +816,12 @@ def get_global_stats():
 
 @app.get('/api/kaspi/tree')
 def get_kaspi_global_tree():
+    return get_kaspi_global_tree_v2()
+
+def get_kaspi_global_tree_v2():
+    return get_kaspi_global_tree_v4()
+
+def get_kaspi_global_tree_v3():
     """基于 algatop_categories_master 构建完整分类树结构 - 彻底解决阻塞问题"""
     from core.final_pipeline import supabase as sb
     try:
@@ -879,6 +885,77 @@ def get_kaspi_global_tree():
         return build_tree('')
     except Exception as e:
         print(f"[TREE API ERROR] {str(e)}")
+        return []
+
+def get_kaspi_global_tree_v4():
+    """Build full kaspi tree and attach last_crawl_date from cache table."""
+    from core.final_pipeline import supabase as sb
+    try:
+        all_cats = []
+        page_size = 1000
+        for i in range(20):
+            res = (
+                sb.table("algatop_categories_master")
+                .select("*")
+                .range(i * page_size, (i + 1) * page_size - 1)
+                .execute()
+            )
+            rows = res.data or []
+            if not rows:
+                break
+            all_cats.extend(rows)
+            if len(rows) < page_size:
+                break
+        if not all_cats:
+            return []
+
+        leaf_ids = {
+            str(c.get("algatop_id")).zfill(5)
+            for c in all_cats
+            if c.get("is_leaf")
+        }
+
+        date_map = {}
+        try:
+            res_cache = (
+                sb.table("category_last_crawl_dates")
+                .select("category_code,last_crawl_date")
+                .execute()
+            )
+            for row in (res_cache.data or []):
+                code_raw = str(row.get("category_code") or "").strip()
+                dt = str(row.get("last_crawl_date") or "").strip()
+                if not code_raw or not dt:
+                    continue
+                code = code_raw.zfill(5) if code_raw.isdigit() else code_raw
+                if code in leaf_ids:
+                    date_map[code] = dt[:10]
+        except Exception as e_cache:
+            print(f"[TREE DATE CACHE ERROR] {e_cache}")
+
+        p_map = {}
+        for c in all_cats:
+            raw_pid = c.get("parent_id")
+            pid = str(raw_pid) if raw_pid and str(raw_pid).lower() != "none" else ""
+            code = str(c.get("algatop_id")).zfill(5)
+            node = {
+                "category_code": code,
+                "title": c.get("name_cn") or c.get("name_ru") or code,
+                "parent_code": pid,
+                "is_leaf": bool(c.get("is_leaf", False)),
+                "last_crawl_date": date_map.get(code),
+            }
+            p_map.setdefault(pid, []).append(node)
+
+        def build_tree(pid=""):
+            children = p_map.get(pid, [])
+            for child in children:
+                child["children"] = build_tree(child["category_code"])
+            return children
+
+        return build_tree("")
+    except Exception as e:
+        print(f"[TREE API ERROR V4] {str(e)}")
         return []
 
 @app.post('/api/kaspi/tasks/batch')
@@ -1170,4 +1247,3 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
