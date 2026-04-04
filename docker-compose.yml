@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:15-alpine
+    image: prosourcing-db:20260402
     container_name: prosourcing_db
     environment:
       POSTGRES_USER: ${PG_USER:-postgres}
@@ -12,12 +12,10 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./scripts/init.sql:/docker-entrypoint-initdb.d/01_init.sql
-      - ./scripts/seed_data.sql:/docker-entrypoint-initdb.d/02_seed_data.sql
     restart: always
 
   backend:
-    image: prosourcing_backend:latest
+    image: prosourcing-backend:20260402
     container_name: prosourcing_backend
     environment:
       - DATABASE_URL=postgresql://${PG_USER:-postgres}:${PG_PASSWORD:-prosourcing123}@db:5432/${PG_DB:-prosourcing}
@@ -40,7 +38,7 @@ services:
     restart: always
 
   frontend:
-    image: prosourcing_frontend:latest
+    image: prosourcing-frontend:20260402
     container_name: prosourcing_frontend
     ports:
       - "${FRONTEND_PORT:-80}:80"

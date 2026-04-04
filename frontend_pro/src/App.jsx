@@ -142,7 +142,23 @@ const getCategoryDisplayName = (cat) => {
 };
 
 const getTopCategoryZhLabel = (task, categories = []) => {
-    const topCat = task?.up_categories?.[0];
+    if (task?.top_category_name_cn) return task.top_category_name_cn;
+    if (task?.top_category_label) return task.top_category_label;
+
+    const normalizedUpCategories = Array.isArray(task?.up_categories)
+        ? task.up_categories
+        : (typeof task?.up_categories === 'string'
+            ? (() => {
+                try {
+                    const parsed = JSON.parse(task.up_categories);
+                    return Array.isArray(parsed) ? parsed : [];
+                } catch {
+                    return [];
+                }
+            })()
+            : []);
+
+    const topCat = normalizedUpCategories[0];
     if (!topCat) return '一级分类';
 
     const direct = getCategoryDisplayName(topCat);
@@ -501,7 +517,15 @@ const App = () => {
                 }
                 if (days > 0) url.searchParams.append('days', days);
             }
-            if (status !== 'all') url.searchParams.append('status', status);
+            if (status !== 'all') {
+                if (status === 'pending') {
+                    ['pending', 'scraping', 'crawling', 'reporting', 'processing', 'retrying'].forEach((item) => {
+                        url.searchParams.append('status', item);
+                    });
+                } else {
+                    url.searchParams.append('status', status);
+                }
+            }
             if (topCat !== 'all') url.searchParams.append('top_category', topCat);
             
             const res = await fetch(url);
@@ -551,7 +575,10 @@ const App = () => {
             const res = await fetch(`${API_BASE}/api/tasks/category`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ category: categoryName })
+                body: JSON.stringify({
+                    category: categoryName,
+                    top_category_id: categoryName,
+                })
             });
             if (res.ok) {
                 alert("任务已下发，正在后台执行");
@@ -594,10 +621,22 @@ const App = () => {
         setLoading(true);
 
         try {
+            const topCategoryByLeafId = new Map();
+            categories.forEach((topCat) => {
+                (topCat.leaves || []).forEach((leaf) => {
+                    topCategoryByLeafId.set(String(leaf.category_id), {
+                        category_code: String(leaf.category_id),
+                        top_category_id: String(topCat.category_id),
+                        top_category_name_cn: topCat.name_cn || '',
+                        top_category_name_ru: topCat.name_ru || '',
+                    });
+                });
+            });
+            const payload = selectedCats.map((id) => topCategoryByLeafId.get(String(id)) || { category_code: String(id) });
             const res = await fetch(`${API_BASE}/api/kaspi/tasks/batch`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(selectedCats)
+                body: JSON.stringify(payload)
             });
             const data = await res.json();
             if (data.success || data.status === 'success') {
@@ -768,7 +807,7 @@ const App = () => {
                                             className="bg-card/50 border border-border rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-widest focus:outline-none appearance-none cursor-pointer hover:border-primary/30 transition-all min-w-[120px]"
                                         >
                                             <option value="all">全部分类</option>
-                                            {categories.map(c => <option key={c.category_id} value={c.name_ru || c.category_name || c.name_cn}>{c.name_cn || c.name_ru}</option>)}
+                                            {categories.map(c => <option key={c.category_id} value={c.name_cn || c.category_name || c.name_ru}>{c.name_cn || c.name_ru}</option>)}
                                         </select>
                                     </div>
                                 ) : null}
@@ -846,7 +885,7 @@ const App = () => {
                                                                     <div className="pr-3 flex-1 min-w-0">
                                                                         <h4 className="font-black text-foreground text-xl truncate flex items-center gap-2" title={task.category}>
                                                                             {getCategoryDisplayName(task)}
-                                                                            {task.up_categories && typeof task.up_categories !== 'string' && task.up_categories.length > 0 && (
+                                                                            {getTopCategoryZhLabel(task, categories) !== '一级分类' && (
                                                                                 <span className="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[10px] uppercase font-bold tracking-widest rounded-md shrink-0">
                                                                                     {getTopCategoryZhLabel(task, categories)}
                                                                                 </span>

@@ -1,9 +1,10 @@
-import os
 import uuid
 import asyncio
+import os
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import List, Optional
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Body
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import create_client, Client
@@ -96,14 +97,199 @@ def _task_matches_top_category(task, top_category):
     if not target_aliases:
         return True
 
-    for item in _normalize_up_categories(task.get("up_categories")):
+    task_path = _normalize_up_categories(task.get("up_categories")) or _resolve_task_up_categories(task)
+    for item in task_path:
         if _extract_category_aliases(item) & target_aliases:
             return True
 
     return False
 
+
+RUNNING_TASK_STATUSES = {"pending", "scraping", "crawling", "reporting", "processing", "retrying"}
+
+
+def _expand_status_filters(status_filters):
+    if not status_filters:
+        return []
+
+    if isinstance(status_filters, str):
+        raw_filters = [status_filters]
+    else:
+        raw_filters = list(status_filters)
+
+    expanded = []
+    for item in raw_filters:
+        normalized = (item or "").strip().lower()
+        if not normalized or normalized == "all":
+            continue
+        if normalized == "pending":
+            for running_status in RUNNING_TASK_STATUSES:
+                if running_status not in expanded:
+                    expanded.append(running_status)
+            continue
+        if normalized not in expanded:
+            expanded.append(normalized)
+    return expanded
+
+
+@lru_cache(maxsize=1024)
+def _get_category_master_row(category_id: str):
+    if not category_id or not str(category_id).isdigit():
+        return None
+
+    from core.final_pipeline import supabase as sb
+
+    res = (
+        sb.table("algatop_categories_master")
+        .select("algatop_id,parent_id,level,name_ru,name_cn")
+        .eq("algatop_id", str(category_id))
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+@lru_cache(maxsize=1)
+def _analysis_tasks_has_updated_at():
+    from core.final_pipeline import supabase as sb
+
+    try:
+        res = (
+            sb.table("information_schema.columns")
+            .select("column_name")
+            .eq("table_name", "analysis_tasks")
+            .eq("column_name", "updated_at")
+            .limit(1)
+            .execute()
+        )
+        return bool(res.data)
+    except Exception:
+        return False
+
+
+def _resolve_task_up_categories(task):
+    normalized_existing = _normalize_up_categories(task.get("up_categories"))
+    has_cn_label = any(
+        (
+            isinstance(item, dict)
+            and any("\u4e00" <= ch <= "\u9fff" for ch in str(item.get("name_cn") or item.get("category_name") or ""))
+        )
+        or (isinstance(item, str) and any("\u4e00" <= ch <= "\u9fff" for ch in item))
+        for item in normalized_existing
+    )
+    if normalized_existing and has_cn_label:
+        return normalized_existing
+
+    category_id = str(task.get("category_id") or "").strip()
+    if not category_id.isdigit():
+        return normalized_existing if normalized_existing else []
+
+    lineage = []
+    current_id = category_id
+    visited = set()
+
+    while current_id and current_id not in visited:
+        visited.add(current_id)
+        row = _get_category_master_row(current_id)
+        if not row:
+            break
+
+        lineage.append(
+            {
+                "category_id": str(row.get("algatop_id")),
+                "category_name": row.get("name_cn") or row.get("name_ru") or "",
+                "name_ru": row.get("name_ru") or "",
+                "name_cn": row.get("name_cn") or "",
+            }
+        )
+
+        parent_id = row.get("parent_id")
+        if parent_id in (None, "", 0, "0"):
+            break
+        current_id = str(parent_id)
+
+    lineage.reverse()
+    return lineage
+
+
+def _enrich_task_metadata(task):
+    task_path = _resolve_task_up_categories(task)
+    if task_path:
+        task["up_categories"] = task_path
+        top_category = task_path[0]
+        task["top_category_label"] = top_category.get("name_cn") or top_category.get("category_name") or top_category.get("name_ru") or "一级分类"
+    else:
+        task["top_category_label"] = None
+    return task
+
+
+def _parse_task_timestamp(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _task_matches_days(task, days):
+    if not days or days <= 0:
+        return True
+    created_at = _parse_task_timestamp(task.get("created_at"))
+    if not created_at:
+        return False
+    return created_at >= (datetime.now(created_at.tzinfo) - timedelta(days=days))
+
+
+def _task_matches_status_filters(task, expanded_statuses):
+    if not expanded_statuses:
+        return True
+    return (task.get("status") or "").strip().lower() in expanded_statuses
+
+
+def _build_initial_up_categories(category_id: str):
+    seed_task = {"category_id": str(category_id or "").strip(), "up_categories": None}
+    return _resolve_task_up_categories(seed_task)
+
+
+def _build_task_insert_payload(category_id: str, display_title: str):
+    now_iso = datetime.now().isoformat()
+    initial_up_categories = _build_initial_up_categories(category_id)
+    top_category = initial_up_categories[0] if initial_up_categories else None
+    payload = {
+        "category": display_title,
+        "category_id": str(category_id),
+        "status": "pending",
+        "progress": 0,
+        "created_at": now_iso,
+        "top_category_id": str(top_category.get("category_id")) if top_category else None,
+        "top_category_name_cn": top_category.get("name_cn") if top_category else None,
+        "top_category_name_ru": top_category.get("name_ru") if top_category else None,
+    }
+    if _analysis_tasks_has_updated_at():
+        payload["updated_at"] = now_iso
+    if initial_up_categories:
+        payload["up_categories"] = json.dumps(initial_up_categories, ensure_ascii=False)
+    return payload
+
+
+def _apply_top_category_overrides(payload, top_category_id=None, top_category_name_cn=None, top_category_name_ru=None):
+    if top_category_id:
+        payload["top_category_id"] = str(top_category_id)
+    if top_category_name_cn:
+        payload["top_category_name_cn"] = str(top_category_name_cn)
+    if top_category_name_ru:
+        payload["top_category_name_ru"] = str(top_category_name_ru)
+    return payload
+
 class TaskRequest(BaseModel):
     category: str
+    top_category_id: Optional[str] = None
+    top_category_name_cn: Optional[str] = None
+    top_category_name_ru: Optional[str] = None
 
 class TaskStatus(BaseModel):
     task_id: str
@@ -116,6 +302,13 @@ class TaskStatus(BaseModel):
     category_stats: Optional[dict] = None
     trend_data: Optional[list] = None
     up_categories: Optional[list] = None
+
+
+class RecoverInterruptedTasksRequest(BaseModel):
+    stale_minutes: int = 20
+    limit: Optional[int] = None
+    statuses: Optional[List[str]] = None
+    dry_run: bool = False
 
 # --- 系统管理模型 ---
 class UserCreate(BaseModel):
@@ -135,11 +328,19 @@ def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
     from core.final_pipeline import supabase as sb
     # 哥，先把中文名翻出来
     cat_name = req.category
-    res_master = sb.table("algatop_categories_master").select("name_cn").eq("name_ru", req.category).limit(1).execute()
+    category_id = req.category
+    res_master = sb.table("algatop_categories_master").select("algatop_id,name_cn").eq("name_ru", req.category).limit(1).execute()
     if res_master.data:
+        category_id = str(res_master.data[0].get("algatop_id") or req.category)
         cat_name = res_master.data[0]['name_cn']
         
-    task_data = {"category": cat_name, "status": "pending", "progress": 0}
+    task_data = _build_task_insert_payload(category_id, cat_name)
+    task_data = _apply_top_category_overrides(
+        task_data,
+        req.top_category_id,
+        req.top_category_name_cn,
+        req.top_category_name_ru,
+    )
     res = sb.table("analysis_tasks").insert(task_data).execute()
     db_task = res.data[0]
     task_id = db_task['id']
@@ -149,10 +350,9 @@ def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
     return task
 
 @app.get("/api/tasks/history")
-def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None, days: Optional[int] = None, status: Optional[str] = None, top_category: Optional[str] = None):
+def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None, days: Optional[int] = None, status: Optional[List[str]] = Query(None), top_category: Optional[str] = None):
     """获取历史任务记录，支持物理分页和搜索/时间筛选"""
     from core.final_pipeline import supabase as sb
-    from datetime import datetime, timedelta
     offset = (page - 1) * page_size
     
     # 哥，先构建基础查询
@@ -165,39 +365,14 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
         # 兼容 ISO 格式
         query = query.gte("created_at", after.isoformat())
         
-    if status and status != 'all':
-        query = query.eq("status", status)
+    expanded_statuses = _expand_status_filters(status)
+    if len(expanded_statuses) == 1:
+        query = query.eq("status", expanded_statuses[0])
+    elif len(expanded_statuses) > 1:
+        query = query.in_("status", expanded_statuses)
 
     if top_category and top_category != 'all':
-        all_rows = []
-        batch_size = 1000
-        batch_index = 0
-
-        while True:
-            batch_res = query.select("*").order("created_at", desc=True).range(
-                batch_index * batch_size,
-                (batch_index + 1) * batch_size - 1
-            ).execute()
-            batch_rows = batch_res.data or []
-            all_rows.extend(batch_rows)
-
-            if len(batch_rows) < batch_size:
-                break
-
-            batch_index += 1
-
-        filtered_rows = [row for row in all_rows if _task_matches_top_category(row, top_category)]
-        data = filtered_rows[offset: offset + page_size]
-        total = len(filtered_rows)
-
-        for t in data:
-            if not t.get('duration') and t['status'] == 'completed':
-                try:
-                    t['duration'] = calculate_duration_from_logs(t['id'])
-                except:
-                    t['duration'] = "--"
-
-        return {"data": data, "total": total, "page": page, "page_size": page_size}
+        query = query.eq("top_category_name_cn", top_category)
         
     if False and top_category and top_category != 'all':
         # 通过 supabase jsonb 的包含查询过滤含有该大类名的节点
@@ -212,7 +387,7 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
     res = query.select("*").order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
     
     # 3. 补全兼容逻辑 (时长解析)
-    data = res.data
+    data = res.data or []
     for t in data:
         if not t.get('duration') and t['status'] == 'completed':
             try:
@@ -676,9 +851,10 @@ def retry_task(task_id: str, background_tasks: BackgroundTasks):
         "status": "pending", 
         "progress": 0, 
         "error_msg": None, 
-        "excel_path": None, 
-        "updated_at": datetime.now().isoformat()
+        "excel_path": None
     }
+    if _analysis_tasks_has_updated_at():
+        payload["updated_at"] = datetime.now().isoformat()
     sb.table("analysis_tasks").update(payload).eq("id", task_id).execute()
     
     # 获取原始类别ID，如果是空则用名称兜底
@@ -686,6 +862,98 @@ def retry_task(task_id: str, background_tasks: BackgroundTasks):
     
     background_tasks.add_task(execute_rpa_pipeline, task_id, cat_id, t.get("category"))
     return TaskStatus(task_id=task_id, category=t['category'], status="pending", progress=0)
+
+
+@app.post("/api/tasks/recover-interrupted")
+def recover_interrupted_tasks(req: RecoverInterruptedTasksRequest, background_tasks: BackgroundTasks):
+    """Recover stale in-flight tasks after a restart by re-enqueueing them."""
+    from core.final_pipeline import supabase as sb
+
+    candidate_statuses = req.statuses or ["pending", "scraping", "crawling", "reporting", "processing", "retrying"]
+    normalized_statuses = []
+    for status in candidate_statuses:
+        normalized = (status or "").strip().lower()
+        if normalized and normalized not in normalized_statuses:
+            normalized_statuses.append(normalized)
+
+    if not normalized_statuses:
+        return {"success": False, "message": "No valid statuses provided", "count": 0, "tasks": []}
+
+    stale_minutes = max(int(req.stale_minutes or 0), 1)
+    stale_before = datetime.now() - timedelta(minutes=stale_minutes)
+    res = (
+        sb.table("analysis_tasks")
+        .select("*")
+        .in_("status", normalized_statuses)
+        .order("created_at", desc=False)
+        .execute()
+    )
+
+    matched = []
+    for task in res.data or []:
+        activity_time = _parse_task_timestamp(task.get("updated_at")) or _parse_task_timestamp(task.get("created_at"))
+        if activity_time and activity_time > stale_before:
+            continue
+        matched.append(task)
+
+    matched.sort(
+        key=lambda task: (
+            _parse_task_timestamp(task.get("updated_at")) or _parse_task_timestamp(task.get("created_at")) or datetime.min
+        )
+    )
+
+    if req.limit and req.limit > 0:
+        matched = matched[: req.limit]
+
+    preview = [
+        {
+            "id": task.get("id"),
+            "category": task.get("category"),
+            "category_id": task.get("category_id"),
+            "status": task.get("status"),
+            "updated_at": task.get("updated_at"),
+            "created_at": task.get("created_at"),
+        }
+        for task in matched
+    ]
+
+    if req.dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "count": len(preview),
+            "stale_before": stale_before.isoformat(),
+            "tasks": preview,
+        }
+
+    requeued = []
+    for task in matched:
+        payload = {
+            "status": "pending",
+            "progress": 0,
+            "error_msg": None,
+            "excel_path": None,
+        }
+        if _analysis_tasks_has_updated_at():
+            payload["updated_at"] = datetime.now().isoformat()
+
+        sb.table("analysis_tasks").update(payload).eq("id", task["id"]).execute()
+        background_tasks.add_task(
+            execute_rpa_pipeline,
+            task["id"],
+            task.get("category_id") or task.get("category"),
+            task.get("category") or str(task.get("category_id") or task["id"]),
+        )
+        requeued.append(task["id"])
+
+    return {
+        "success": True,
+        "dry_run": False,
+        "count": len(requeued),
+        "stale_before": stale_before.isoformat(),
+        "task_ids": requeued,
+        "tasks": preview,
+    }
 
 
 @app.post("/api/tasks/category", response_model=TaskStatus)
@@ -709,18 +977,17 @@ def create_category_task(req: TaskRequest, background_tasks: BackgroundTasks):
     
     # 如果是数字 ID，直接去主表查中文名存库
     if str(category_id).isdigit():
-        res_master = sb.table("algatop_categories_master").select("name_cn").eq("algatop_id", int(category_id)).limit(1).execute()
+        res_master = sb.table("algatop_categories_master").select("name_cn").eq("algatop_id", str(category_id)).limit(1).execute()
         if res_master.data and res_master.data[0]['name_cn']:
             display_title = res_master.data[0]['name_cn']
 
-    task_data = {
-        "category": display_title, 
-        "category_id": category_id,
-        "status": "pending",
-        "progress": 0,
-        "created_at": datetime.now().isoformat(),
-        "updated_at": datetime.now().isoformat()
-    }
+    task_data = _build_task_insert_payload(category_id, display_title)
+    task_data = _apply_top_category_overrides(
+        task_data,
+        req.top_category_id,
+        req.top_category_name_cn,
+        req.top_category_name_ru,
+    )
     res = sb.table("analysis_tasks").insert(task_data).execute()
     db_task = res.data[0]
     task_id = db_task['id']
@@ -781,7 +1048,8 @@ async def execute_rpa_pipeline(task_id: str, category_id: str, category_name: st
         if url: payload["excel_path"] = url
         if err: payload["error_msg"] = err
         if duration: payload["duration"] = duration
-        payload["updated_at"] = datetime.now().isoformat()
+        if _analysis_tasks_has_updated_at():
+            payload["updated_at"] = datetime.now().isoformat()
         await asyncio.to_thread(sb.table("analysis_tasks").update(payload).eq("id", task_id).execute)
 
     async def write_log(f, msg):
@@ -1025,6 +1293,30 @@ def get_kaspi_global_tree_v4():
         except Exception as e_cache:
             print(f"[TREE DATE CACHE ERROR] {e_cache}")
 
+        # Fallback: recent completed tasks should still surface a date even if the cache table
+        # was not refreshed during a restart or partial deploy.
+        missing_leaf_ids = [code for code in leaf_ids if code not in date_map]
+        if missing_leaf_ids:
+            try:
+                res_tasks = (
+                    sb.table("analysis_tasks")
+                    .select("category_id,updated_at,created_at")
+                    .eq("status", "completed")
+                    .in_("category_id", missing_leaf_ids)
+                    .order("updated_at", desc=True)
+                    .execute()
+                )
+                for row in (res_tasks.data or []):
+                    code_raw = str(row.get("category_id") or "").strip()
+                    dt = str(row.get("updated_at") or row.get("created_at") or "").strip()
+                    if not code_raw or not dt:
+                        continue
+                    code = code_raw.zfill(5) if code_raw.isdigit() else code_raw
+                    if code in leaf_ids and code not in date_map:
+                        date_map[code] = dt[:10]
+            except Exception as e_tasks:
+                print(f"[TREE DATE TASK FALLBACK ERROR] {e_tasks}")
+
         p_map = {}
         for c in all_cats:
             raw_pid = c.get("parent_id")
@@ -1051,10 +1343,37 @@ def get_kaspi_global_tree_v4():
         return []
 
 @app.post('/api/kaspi/tasks/batch')
-def create_kaspi_tasks_batch(item_codes: List[str] = Body(...), background_tasks: BackgroundTasks = BackgroundTasks()):
+def create_kaspi_tasks_batch(items = Body(...), background_tasks: BackgroundTasks = BackgroundTasks()):
     from core.final_pipeline import supabase as sb
-    
-    requested_codes = [str(c).strip() for c in item_codes if str(c).strip()]
+
+    normalized_items = []
+    for item in items or []:
+        if isinstance(item, dict):
+            code = str(item.get("category_code") or item.get("category_id") or "").strip()
+            if not code:
+                continue
+            normalized_items.append(
+                {
+                    "category_code": code,
+                    "top_category_id": str(item.get("top_category_id") or "").strip() or None,
+                    "top_category_name_cn": str(item.get("top_category_name_cn") or "").strip() or None,
+                    "top_category_name_ru": str(item.get("top_category_name_ru") or "").strip() or None,
+                }
+            )
+        else:
+            code = str(item).strip()
+            if not code:
+                continue
+            normalized_items.append(
+                {
+                    "category_code": code,
+                    "top_category_id": None,
+                    "top_category_name_cn": None,
+                    "top_category_name_ru": None,
+                }
+            )
+
+    requested_codes = [item["category_code"] for item in normalized_items]
     total_requested = len(requested_codes)
     if total_requested == 0:
         return {
@@ -1071,9 +1390,10 @@ def create_kaspi_tasks_batch(item_codes: List[str] = Body(...), background_tasks
         return s if s else '0'
 
     dedup_map = {}
-    for c in requested_codes:
-        dedup_map.setdefault(norm_code(c), c)
-    dedup_requested_codes = list(dedup_map.values())
+    for item in normalized_items:
+        dedup_map.setdefault(norm_code(item["category_code"]), item)
+    dedup_requested_items = list(dedup_map.values())
+    dedup_requested_codes = [item["category_code"] for item in dedup_requested_items]
     
     # 哥，先把这些 ID 的中文名全副武装好，优先去 master 主表拿最正宗的翻译
     res_master = sb.table('algatop_categories_master').select('algatop_id, name_cn, name_ru').in_('algatop_id', dedup_requested_codes).execute()
@@ -1090,15 +1410,18 @@ def create_kaspi_tasks_batch(item_codes: List[str] = Body(...), background_tasks
     # 如果 master 里没找全，再去 global_category_dict 碰碰运气
     missing_codes = [c for c in dedup_requested_codes if c not in code_map]
     if missing_codes:
-        res_dict = sb.table('global_category_dict').select('*').in_('algatop_id', missing_codes).execute()
-        for row in res_dict.data:
-            aid = str(row['algatop_id'])
-            kid = str(row['kaspi_id'])
-            name = row.get('name_cn')
-            if not name or any(u'\u0400' <= c <= u'\u04FF' for c in name):
-                name = row.get('name_ru') or row.get('name_en') or aid
-            code_map[aid] = name
-            code_map[kid] = name
+        try:
+            res_dict = sb.table('global_category_dict').select('*').in_('algatop_id', missing_codes).execute()
+            for row in res_dict.data:
+                aid = str(row['algatop_id'])
+                kid = str(row['kaspi_id'])
+                name = row.get('name_cn')
+                if not name or any(u'\u0400' <= c <= u'\u04FF' for c in name):
+                    name = row.get('name_ru') or row.get('name_en') or aid
+                code_map[aid] = name
+                code_map[kid] = name
+        except Exception as e:
+            print(f"[BATCH FALLBACK WARN] global_category_dict unavailable: {e}")
 
     # 哥，15天同类目拦截过滤！防止重复发起资源浪费
     recent_limit = (datetime.now() - timedelta(days=15)).isoformat()
@@ -1128,20 +1451,22 @@ def create_kaspi_tasks_batch(item_codes: List[str] = Body(...), background_tasks
         if st == "completed" and created_at >= recent_limit:
             blocked_norm_ids.add(cid_norm)
 
-    filtered_codes = [c for c in dedup_requested_codes if norm_code(c) not in blocked_norm_ids]
-    filtered_count = total_requested - len(filtered_codes)
+    filtered_items = [item for item in dedup_requested_items if norm_code(item["category_code"]) not in blocked_norm_ids]
+    filtered_count = total_requested - len(filtered_items)
 
     payload = []
-    for code in filtered_codes:
+    for item in filtered_items:
+        code = item["category_code"]
         display_name = code_map.get(str(code), str(code))
-        payload.append({
-            'category_id': str(code),
-            'category': display_name,
-            'status': 'pending',
-            'progress': 0,
-            'created_at': datetime.now().isoformat(),
-            'updated_at': datetime.now().isoformat()
-        })
+        payload_item = _build_task_insert_payload(str(code), display_name)
+        payload.append(
+            _apply_top_category_overrides(
+                payload_item,
+                item.get("top_category_id"),
+                item.get("top_category_name_cn"),
+                item.get("top_category_name_ru"),
+            )
+        )
         
     try:
         if payload:

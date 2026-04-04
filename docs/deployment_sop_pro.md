@@ -1,102 +1,205 @@
-# 🏠 ProSourcing AI 采集系统：保姆级安装与操作指南 (V3.0)
+# ProSourcing 现场部署手册
 
-哥，这套手册我按“保洁阿姨级”难度重写了。哪怕没摸过代码，只要会点鼠标、会打字，按着一步步来绝对能成！
+## 1. 本次变更内容
 
----
-
-## 🏗️ 第一阶段：准备工作 (下载与拷文件)
-> **目标**：把所有的“零件”都准备齐全，带进 U 盘。
-
-### 1. 必下的软件包 (去官网下最新的)
-- **Python**: [点击下载 Python 3.10](https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe)
-- **Docker**: [点击下载 Docker Desktop](https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe)
-- **Chrome 浏览器**: 如果目标电脑没装，必须装一个。
-
-### 2. U 盘里必须有的文件单
-请把以下文件全部拷进 U 盘的一个文件夹里：
-- ✅ `python-3.10.11-amd64.exe` (刚下的安装包)
-- ✅ `Docker Desktop Installer.exe` (刚下的安装包)
-- ✅ `prosourcing_backend_ultimate.tar` (系统核心包，最重要！)
-- ✅ `.env` (配置文件)
-- ✅ `docker-compose.yml` (系统图纸)
-- ✅ `launch_rpa_chrome.py` (浏览器的“遥控器”)
-- ✅ `AI产品开发.xlsx` (报表模板)
+- 前端发起任务时，直接把一级分类信息一起提交给后端。
+- 后端在创建任务时，把一级分类信息写入 `analysis_tasks`。
+- 任务列表直接读取 `analysis_tasks.top_category_name_cn`，不再在 `/api/tasks/history` 中逐条补算一级分类。
+- 数据库不再要求重新制作数据库镜像；客户现场直接在 Docker 数据库里执行升级 SQL。
 
 ---
 
-## 🚀 第二阶段：现场安装 (傻瓜式三步走)
+## 2. 需要更新的文件
 
-### 第一步：装软件 (一路点“下一步”)
-1. **安装 Python**：
-   - 双击 `python-3.10.11`。
-   - **⚠️ 特别注意**：底部有一个 **`Add Python to PATH`**，必须打勾！没打勾就得重装。
-   - 点 `Install Now`。
-2. **安装 Docker**：
-   - 双击 `Docker Desktop Installer`。
-   - 一路点 OK，装完后会提示重启电脑。**必须重启！**
-   - 重启后，双击桌面小鲸鱼图标，等它变绿（Running）。
+### 后端
 
-### 第二步：抄文件 (搬运工时间)
-1. 在客户电脑 **D 盘** 建立一个文件夹，起名叫 `ProSourcing`。
-2. 把 U 盘里剩下的所有文件全部复制进去。
-3. **最终 D:\ProSourcing 文件夹里应该长这样：**
-   - `output/` (空文件夹，抓完的东西在这)
-   - `.env`
-   - `docker-compose.yml`
-   - `prosourcing_backend_ultimate.tar`
-   - `launch_rpa_chrome.py`
-   - `AI产品开发.xlsx`
+- `api/server.py`
 
-### 第三步：点火启动 (复制粘贴命令)
-1. 在 `D:\ProSourcing` 文件夹的空白处，按住键盘 **Shift 键**，同时点**鼠标右键**。
-2. 选择“在此处打开 PowerShell 窗口”或“在此处打开终端”。
-3. **粘贴第一条指令 (加载系统)**:
-   ```powershell
-   docker load -i prosourcing_backend_ultimate.tar
-   ```
-   (等它跑完，显示 Loaded image...)
-4. **粘贴第二条指令 (启动系统)**:
-   ```powershell
-   docker-compose up -d
-   ```
-   (看到三个绿色 `Started`，系统就原地复活了！)
+### 前端
+
+- `frontend_pro/src/App.jsx`
+- `frontend_pro/src/components/KaspiTaskView.jsx`
+
+### 数据库 SQL
+
+- `scripts/sql/add_top_category_columns.sql`
+- `scripts/sql/backfill_task_top_category.sql`
 
 ---
 
-## 🎮 第三阶段：日常操作 (怎么用它干活)
+## 3. 重新打包前后端镜像
 
-### 1. 开启“上帝浏览器”
-- **每天开始干活前**，先双击运行那个 `launch_rpa_chrome.py`。
-- 会弹出一个 Chrome 窗口，请在里面登录你的 **Algatop 账号**。
-- **⚠️ 注意**：这个窗口千万别关，缩小到后台就行。
+在项目根目录执行：
 
-### 2. 去网页点点点
-- 打开浏览器访问地址：`http://localhost`。
-- 类目树出来后，点“开始采集”。
+```powershell
+docker build -f Dockerfile.frontend -t prosourcing-frontend:20260402 .
+docker save prosourcing-frontend:20260402 -o deployment_package/20260402/prosourcing-frontend_20260402.tar
 
----
+docker build -f Dockerfile.backend -t prosourcing-backend:20260402 .
+docker save prosourcing-backend:20260402 -o deployment_package/20260402/prosourcing-backend_20260402.tar
+```
 
-## ⚠️ 避坑与注意事项 (保命指南)
+拷贝以下文件到客户现场：
 
-### 1. 换号了怎么办？
-- 当账号没额度了：
-  - 右键记事本打开 `.env` 文件。
-  - 把 `ALGATOP_USER` 和 `ALGATOP_PASS` 换成新的。
-  - **关键点**：关掉所有 Chrome 窗口，重新双击 `launch_rpa_chrome.py` 登录新号。
-
-### 2. 进度条不动了？
-- 刷新网页看一眼。
-- 确认 `launch_rpa_chrome.py` 弹出来的那个黑框还在不在跑。
-
-### 3. 数据怎么拿？
-- 所有的 Excel 报表和原始数据都在 `D:\ProSourcing\output` 文件夹里。
+- `deployment_package/20260402/prosourcing-frontend_20260402.tar`
+- `deployment_package/20260402/prosourcing-backend_20260402.tar`
+- `deployment_package/20260402/docker-compose.yml`
+- `scripts/sql/add_top_category_columns.sql`
+- `scripts/sql/backfill_task_top_category.sql`
 
 ---
 
-## 🚨 常见报错自救手册
-- **报错 500/连接失败**：多半是开了翻墙软件。**请关闭 Clash/V2Ray 等代理程序**，或者把代理退出再试。
-- **找不到文件**：确认文件夹路径是 `D:\ProSourcing`，且 `AI产品开发.xlsx` 就在这个文件夹里。
-- **端口冲突**：如果启动失败，请检查 8000 端口是不是被别的软件占了。
+## 4. 客户现场升级步骤
+
+### 4.1 导入新镜像
+
+```powershell
+docker load -i prosourcing-frontend_20260402.tar
+docker load -i prosourcing-backend_20260402.tar
+```
+
+### 4.2 重启前后端容器
+
+在 `docker-compose.yml` 所在目录执行：
+
+```powershell
+docker compose up -d frontend backend
+```
 
 ---
-哥，这就是最全的说明了。只要这套文件全，谁来都能在 5 分钟内把整套系统跑起来！🚀
+
+## 5. 数据库升级步骤
+
+### 5.1 进入数据库
+
+```powershell
+docker exec -it prosourcing_db psql -U postgres -d prosourcing
+```
+
+### 5.2 执行加字段 SQL
+
+把 `scripts/sql/add_top_category_columns.sql` 内容粘贴进去执行：
+
+```sql
+ALTER TABLE public.analysis_tasks
+    ADD COLUMN IF NOT EXISTS top_category_id TEXT,
+    ADD COLUMN IF NOT EXISTS top_category_name_cn TEXT,
+    ADD COLUMN IF NOT EXISTS top_category_name_ru TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_tasks_top_category_name_cn
+    ON public.analysis_tasks(top_category_name_cn);
+```
+
+### 5.3 回填历史任务一级分类
+
+把 `scripts/sql/backfill_task_top_category.sql` 内容粘贴进去执行：
+
+```sql
+WITH RECURSIVE lineage AS (
+    SELECT
+        t.id AS task_id,
+        m.algatop_id,
+        m.parent_id,
+        m.name_cn,
+        m.name_ru,
+        0 AS depth
+    FROM public.analysis_tasks t
+    JOIN public.algatop_categories_master m
+      ON m.algatop_id::text = t.category_id::text
+    WHERE COALESCE(t.category_id, '') <> ''
+
+    UNION ALL
+
+    SELECT
+        l.task_id,
+        parent.algatop_id,
+        parent.parent_id,
+        parent.name_cn,
+        parent.name_ru,
+        l.depth + 1
+    FROM lineage l
+    JOIN public.algatop_categories_master parent
+      ON parent.algatop_id::text = l.parent_id::text
+    WHERE COALESCE(l.parent_id, '') <> ''
+),
+top_level AS (
+    SELECT DISTINCT ON (task_id)
+        task_id,
+        algatop_id,
+        name_cn,
+        name_ru
+    FROM lineage
+    ORDER BY task_id, depth DESC
+)
+UPDATE public.analysis_tasks t
+SET top_category_id = top_level.algatop_id::text,
+    top_category_name_cn = top_level.name_cn,
+    top_category_name_ru = top_level.name_ru
+FROM top_level
+WHERE t.id = top_level.task_id
+  AND (
+      COALESCE(t.top_category_id, '') = ''
+      OR COALESCE(t.top_category_name_cn, '') = ''
+  );
+```
+
+### 5.4 退出数据库
+
+```sql
+\q
+```
+
+---
+
+## 6. 升级后验证
+
+### 6.1 检查字段是否存在
+
+```powershell
+docker exec -it prosourcing_db psql -U postgres -d prosourcing -c "\d analysis_tasks"
+```
+
+应能看到：
+
+- `top_category_id`
+- `top_category_name_cn`
+- `top_category_name_ru`
+
+### 6.2 检查历史任务是否回填成功
+
+```powershell
+docker exec -it prosourcing_db psql -U postgres -d prosourcing -c "SELECT id, category, top_category_name_cn FROM analysis_tasks ORDER BY created_at DESC LIMIT 10;"
+```
+
+### 6.3 检查接口
+
+```powershell
+curl http://localhost:8000/api/tasks/history?page=1&page_size=5
+```
+
+返回结果中应能看到 `top_category_name_cn`。
+
+---
+
+## 7. 中断任务恢复
+
+如果系统更新后有任务卡在中间状态，先把脚本拷进后端容器：
+
+```powershell
+docker cp recover_interrupted_tasks.py prosourcing_backend:/app/recover_interrupted_tasks.py
+```
+
+然后执行：
+
+```powershell
+docker exec -it prosourcing_backend python /app/recover_interrupted_tasks.py --stale-minutes 30 --dry-run
+docker exec -it prosourcing_backend python /app/recover_interrupted_tasks.py --stale-minutes 30
+```
+
+---
+
+## 8. 注意事项
+
+- 这次升级不需要替换数据库镜像。
+- 如果客户现场数据库已经有旧数据，一定要执行第 5 节 SQL。
+- 如果前端列表还是旧的一级分类显示，先刷新页面，再检查第 5.3 步是否执行成功。

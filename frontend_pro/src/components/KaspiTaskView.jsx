@@ -103,12 +103,19 @@ export function KaspiTaskView() {
     useEffect(() => {
         if (!tree.length) return;
         const map = {};
-        const walk = (n, path = []) => {
+        const walk = (n, path = [], nodePath = []) => {
             const currentPath = [...path, n.title || n.category_code];
+            const currentNodePath = [...nodePath, n];
             if (n.is_leaf) {
-                map[n.category_code] = { ...n, fullPath: currentPath };
+                const topNode = currentNodePath[0];
+                map[n.category_code] = {
+                    ...n,
+                    fullPath: currentPath,
+                    topCategoryId: topNode?.category_code,
+                    topCategoryNameCn: topNode?.title,
+                };
             }
-            n.children?.forEach(c => walk(c, currentPath));
+            n.children?.forEach(c => walk(c, currentPath, currentNodePath));
         };
         tree.forEach(n => walk(n));
         setLeafMap(map);
@@ -120,7 +127,11 @@ export function KaspiTaskView() {
         if (selectedLeavesList.length === 0) return;
         setSubmitting(true);
         try {
-            const ids = selectedLeavesList.map(l => l.category_code);
+            const ids = selectedLeavesList.map((leaf) => ({
+                category_code: leaf.category_code,
+                top_category_id: leaf.topCategoryId,
+                top_category_name_cn: leaf.topCategoryNameCn,
+            }));
             const res = await fetch(`${API_BASE}/api/kaspi/tasks/batch`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
