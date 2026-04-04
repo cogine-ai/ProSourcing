@@ -43,6 +43,61 @@ process_pool = {}
 browser_launch_lock = asyncio.Lock()
 
 
+def _normalize_category_code(category_id):
+    raw = str(category_id or "").strip()
+    if not raw:
+        return ""
+    return raw.zfill(5) if raw.isdigit() else raw
+
+
+def _category_code_variants(category_id):
+    raw = str(category_id or "").strip()
+    if not raw:
+        return []
+
+    variants = []
+    for candidate in (raw, raw.zfill(5) if raw.isdigit() else raw, raw.lstrip("0") or "0"):
+        candidate = str(candidate).strip()
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+    return variants
+
+
+def _sync_last_crawl_date(category_id, crawl_date=None):
+    normalized_code = _normalize_category_code(category_id)
+    if not normalized_code:
+        return False
+
+    from core.final_pipeline import supabase as sb
+
+    crawl_date = str(crawl_date or datetime.now().date().isoformat())[:10]
+    updated_at = datetime.now().isoformat()
+
+    sb.table("category_last_crawl_dates").upsert(
+        {
+            "category_code": normalized_code,
+            "last_crawl_date": crawl_date,
+            "updated_at": updated_at,
+        }
+    ).execute()
+
+    updated = False
+    for candidate in _category_code_variants(category_id):
+        try:
+            res = (
+                sb.table("algatop_categories_master")
+                .update({"last_crawl_date": crawl_date})
+                .eq("algatop_id", candidate)
+                .execute()
+            )
+            if res.data:
+                updated = True
+                break
+        except Exception:
+            continue
+    return updated
+
+
 def _extract_category_aliases(category_value):
     aliases = set()
     if category_value is None:
@@ -1139,6 +1194,10 @@ async def execute_rpa_pipeline(task_id: str, category_id: str, category_name: st
         except: pass
         
         await update_db_async(100, "completed", duration=duration_str)
+        try:
+            await asyncio.to_thread(_sync_last_crawl_date, category_id)
+        except Exception as sync_err:
+            await write_log(log_file, f"[LAST_CRAWL_DATE WARN] {sync_err}")
         await write_log(log_file, f"--- Pipeline COMPLETED successfully (Duration: {duration_str}) ---")
 
     except Exception as e:
@@ -1298,22 +1357,28 @@ def get_kaspi_global_tree_v4():
         missing_leaf_ids = [code for code in leaf_ids if code not in date_map]
         if missing_leaf_ids:
             try:
+                lookup_codes = sorted(
+                    {
+                        candidate
+                        for code in missing_leaf_ids
+                        for candidate in _category_code_variants(code)
+                    }
+                )
                 res_tasks = (
                     sb.table("analysis_tasks")
                     .select("category_id,updated_at,created_at")
                     .eq("status", "completed")
-                    .in_("category_id", missing_leaf_ids)
+                    .in_("category_id", lookup_codes)
                     .order("updated_at", desc=True)
                     .execute()
                 )
                 for row in (res_tasks.data or []):
-                    code_raw = str(row.get("category_id") or "").strip()
+                    code_raw = _normalize_category_code(row.get("category_id"))
                     dt = str(row.get("updated_at") or row.get("created_at") or "").strip()
                     if not code_raw or not dt:
                         continue
-                    code = code_raw.zfill(5) if code_raw.isdigit() else code_raw
-                    if code in leaf_ids and code not in date_map:
-                        date_map[code] = dt[:10]
+                    if code_raw in leaf_ids and code_raw not in date_map:
+                        date_map[code_raw] = dt[:10]
             except Exception as e_tasks:
                 print(f"[TREE DATE TASK FALLBACK ERROR] {e_tasks}")
 
