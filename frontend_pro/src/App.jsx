@@ -112,8 +112,85 @@ const StatCard = ({ label, value, icon }) => (
     </div>
 );
 
+const normalizeCategoryLookupKey = (value) => String(value || '').trim().toLowerCase();
+
+const extractCategoryCandidates = (cat) => {
+    if (!cat) return [];
+
+    const candidates = new Set();
+    const push = (value) => {
+        if (!value && value !== 0) return;
+        const text = String(value).trim();
+        if (!text) return;
+        candidates.add(text);
+    };
+
+    [
+        cat?.name_ru,
+        cat?.category_name,
+        cat?.category,
+        cat?.name,
+        cat?.title,
+        cat?.category_code,
+        cat?.category_id,
+        cat?.algatop_id,
+        cat?.id,
+    ].forEach(push);
+
+    const fullName = cat?.category_name || cat?.category || cat?.name || cat?.title || '';
+    if (fullName) {
+        push(fullName.split(' - ')[0]);
+
+        const bracketRuName = fullName.replace(/\s*\(.*?\)\s*/g, '').trim();
+        push(bracketRuName);
+
+        if (fullName.startsWith('RPA采集_')) {
+            const parts = fullName.split('_');
+            if (parts.length > 1) {
+                push(parts[1]);
+                push(parts[1].replace(/\(.*?\)/g, '').trim());
+            }
+        }
+    }
+
+    return Array.from(candidates);
+};
+
+const buildCategoryNameLookup = (nodes = []) => {
+    const lookup = new Map();
+
+    const walk = (nodeList) => {
+        nodeList.forEach((node) => {
+            if (!node) return;
+
+            const zhName = node?.name_cn || node?.category_name_cn || node?.category_cn;
+            if (zhName && !anyCyrillic(zhName)) {
+                extractCategoryCandidates(node).forEach((candidate) => {
+                    lookup.set(normalizeCategoryLookupKey(candidate), zhName);
+                });
+            }
+
+            if (Array.isArray(node?.children) && node.children.length > 0) {
+                walk(node.children);
+            }
+        });
+    };
+
+    walk(Array.isArray(nodes) ? nodes : []);
+    return lookup;
+};
+
+const resolveCategoryZhName = (cat, categoryLookup = new Map()) => {
+    const candidates = typeof cat === 'string' ? [cat] : extractCategoryCandidates(cat);
+    for (const candidate of candidates) {
+        const match = categoryLookup.get(normalizeCategoryLookupKey(candidate));
+        if (match) return match;
+    }
+    return '';
+};
+
 // --- 原子组件：类目卡片 ---
-const getCategoryDisplayName = (cat) => {
+const getCategoryDisplayName = (cat, categoryLookup = new Map()) => {
     if (!cat) return "未知品类";
     
     // 优先使用后端提供的中文名
@@ -126,6 +203,9 @@ const getCategoryDisplayName = (cat) => {
     // 尝试提取括号中的中文
     const match = fullName.match(/\((.*?)\)/);
     if (match) return match[1];
+
+    const treeMatchedName = resolveCategoryZhName(cat, categoryLookup);
+    if (treeMatchedName) return treeMatchedName;
 
     // 兼容 "RPA采集_俄文(中文)_日期" 结构
     if (fullName.startsWith('RPA采集_')) {
@@ -141,7 +221,7 @@ const getCategoryDisplayName = (cat) => {
     return fullName.split(' - ')[0];
 };
 
-const getTopCategoryZhLabel = (task, categories = []) => {
+const getTopCategoryZhLabel = (task, categories = [], categoryLookup = new Map()) => {
     if (task?.top_category_name_cn) return task.top_category_name_cn;
     if (task?.top_category_label) return task.top_category_label;
 
@@ -161,12 +241,12 @@ const getTopCategoryZhLabel = (task, categories = []) => {
     const topCat = normalizedUpCategories[0];
     if (!topCat) return '一级分类';
 
-    const direct = getCategoryDisplayName(topCat);
+    const direct = getCategoryDisplayName(topCat, categoryLookup);
     if (direct && /[\u4e00-\u9fff]/.test(direct)) return direct;
 
     const topRu = typeof topCat === 'string' ? topCat : (topCat?.name_ru || topCat?.category_name || topCat?.name || '');
     const match = categories.find(c => (c?.name_ru || c?.category_name || c?.name || '') === topRu);
-    return match?.name_cn || direct || '一级分类';
+    return match?.name_cn || resolveCategoryZhName(topCat, categoryLookup) || direct || '一级分类';
 };
 
 const buildReportPagination = (currentPage, totalPages) => {
@@ -287,6 +367,7 @@ const App = () => {
     const [isDark, setIsDark] = useState(true);
     const [categories, setCategories] = useState([]);
     const [allCategories, setAllCategories] = useState([]);
+    const [categoryNameLookup, setCategoryNameLookup] = useState(() => new Map());
     const [tasks, setTasks] = useState([]);
     const [selectedTask, setSelectedTask] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -296,6 +377,10 @@ const App = () => {
     const [reportTab, setReportTab] = useState('metrics');
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
     const [algoConfig, setAlgoConfig] = useState(null); // 算法配置状态
+
+    useEffect(() => {
+        setCategoryNameLookup(buildCategoryNameLookup(allCategories));
+    }, [allCategories]);
 
     // 统一评分逻辑：根据 algoConfig 计算
     const getMetricScore = (metricKey, value, secondaryValue = null) => {
@@ -884,10 +969,10 @@ const App = () => {
                                                                 <div className="flex justify-between items-start mb-4 border-b border-border/40 pb-3">
                                                                     <div className="pr-3 flex-1 min-w-0">
                                                                         <h4 className="font-black text-foreground text-xl truncate flex items-center gap-2" title={task.category}>
-                                                                            {getCategoryDisplayName(task)}
-                                                                            {getTopCategoryZhLabel(task, categories) !== '一级分类' && (
+                                                                            {getCategoryDisplayName(task, categoryNameLookup)}
+                                                                            {getTopCategoryZhLabel(task, categories, categoryNameLookup) !== '一级分类' && (
                                                                                 <span className="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[10px] uppercase font-bold tracking-widest rounded-md shrink-0">
-                                                                                    {getTopCategoryZhLabel(task, categories)}
+                                                                                    {getTopCategoryZhLabel(task, categories, categoryNameLookup)}
                                                                                 </span>
                                                                             )}
                                                                         </h4>
@@ -1083,7 +1168,7 @@ const App = () => {
                                                     <div className="flex flex-col items-end">
                                                         <div className="flex items-center gap-4">
                                                             <h2 className="text-[32px] font-black text-foreground leading-tight tracking-tighter">
-                                                                {getCategoryDisplayName(selectedTask)}
+                                                                {getCategoryDisplayName(selectedTask, categoryNameLookup)}
                                                             </h2>
                                                             {selectedTask?.excel_path && (
                                                                 <a
