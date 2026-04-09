@@ -591,7 +591,7 @@ const App = () => {
         try {
             const res = await fetch(`${API_BASE}/api/tasks/${taskId}/retry`, { method: 'POST' });
             if (res.ok) {
-                alert('浠诲姟宸查噸鏂板姞鍏ラ噰闆嗛槦鍒楋紒');
+                alert('任务已重新加入采集队列！');
                 fetchHistory();
             }
         } catch (e) { console.error("Retry task failed", e); }
@@ -1505,7 +1505,7 @@ const App = () => {
                                                                         <th className="px-6 py-4 text-center">ABC 分类</th>
                                                                         <th className="px-6 py-4 text-right">月销售额</th>
                                                                         <th className="px-6 py-4">上架时间</th>
-                                                                        <th className="px-6 py-4">闄愬埗绫诲瀷</th>
+                                                                        <th className="px-6 py-4">限制类型</th>
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-border/20">
