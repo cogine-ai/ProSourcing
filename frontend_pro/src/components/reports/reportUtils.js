@@ -99,14 +99,28 @@ export const filterTaskProducts = (taskProducts, onlyHighQuality, filters, force
     })
 );
 
+export const getAverageSalesPerProduct = (selectedTask) => {
+    const saleQty = force_int_fallback(selectedTask?.category_stats?.sale_qty);
+    const productQty = force_int_fallback(selectedTask?.category_stats?.sale_product_qty);
+    if (productQty <= 0) return 0;
+    return saleQty / productQty;
+};
+
+const force_int_fallback = (value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+};
+
 export const getTaskProductScore = (tp, getMetricScore, selectedTask) => {
     const raw = tp.products_raw_data;
     const listedDays = getListedDays(raw.created_dt);
+    const avgSales = getAverageSalesPerProduct(selectedTask);
     return getMetricScore('monthly_sales', raw.sale_qty || 0)
         + getMetricScore('reviews', raw.review_qty || 0)
         + getMetricScore('price', raw.sale_price || 0)
         + getMetricScore('days_per_review', listedDays, raw.review_qty || 0)
-        + getMetricScore('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0);
+        + getMetricScore('avg_sales', avgSales);
 };
 
 export const sortTaskProducts = (taskProducts, sortBy, getMetricScore, selectedTask) => (

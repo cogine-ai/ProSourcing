@@ -10,6 +10,9 @@ export function LogViewer({ apiBase, taskId, onClose }) {
         const fetchLogs = async () => {
             try {
                 const res = await fetch(`${apiBase}/api/tasks/${taskId}/logs`);
+                if (!res.ok) {
+                    throw new Error(`Failed to fetch logs: ${res.status}`);
+                }
                 const data = await res.json();
                 setLogs(data.logs || "No logs found yet.");
             } catch (err) {
