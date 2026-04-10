@@ -1,5 +1,7 @@
 export const anyCyrillic = (str) => /[\u0400-\u04FF]/.test(str);
+
 const DEFAULT_LISTED_DAYS_FALLBACK = 999;
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 const forceIntFallback = (value) => {
     if (value === null || value === undefined || value === '') return 0;
@@ -7,15 +9,93 @@ const forceIntFallback = (value) => {
     return Number.isFinite(numeric) ? numeric : 0;
 };
 
-export const getCategoryDisplayName = (cat) => {
-    if (!cat) return "未知品类";
+const normalizeCategoryLookupKey = (value) => String(value || '').trim().toLowerCase();
+
+const extractCategoryCandidates = (cat) => {
+    if (!cat) return [];
+
+    const candidates = new Set();
+    const push = (value) => {
+        if (!value && value !== 0) return;
+        const text = String(value).trim();
+        if (!text) return;
+        candidates.add(text);
+    };
+
+    [
+        cat?.name_ru,
+        cat?.category_name,
+        cat?.category,
+        cat?.name,
+        cat?.title,
+        cat?.category_code,
+        cat?.category_id,
+        cat?.algatop_id,
+        cat?.id,
+    ].forEach(push);
+
+    const fullName = cat?.category_name || cat?.category || cat?.name || cat?.title || '';
+    if (fullName) {
+        push(fullName.split(' - ')[0]);
+        push(fullName.replace(/\s*\(.*?\)\s*/g, '').trim());
+
+        if (fullName.startsWith('RPA采集_')) {
+            const parts = fullName.split('_');
+            if (parts.length > 1) {
+                push(parts[1]);
+                push(parts[1].replace(/\(.*?\)/g, '').trim());
+            }
+        }
+    }
+
+    return Array.from(candidates);
+};
+
+export const buildCategoryNameLookup = (nodes = []) => {
+    const lookup = new Map();
+
+    const walk = (nodeList) => {
+        nodeList.forEach((node) => {
+            if (!node) return;
+
+            const zhName = node?.name_cn || node?.category_name_cn || node?.category_cn;
+            if (zhName && !anyCyrillic(zhName)) {
+                extractCategoryCandidates(node).forEach((candidate) => {
+                    lookup.set(normalizeCategoryLookupKey(candidate), zhName);
+                });
+            }
+
+            if (Array.isArray(node?.children) && node.children.length > 0) {
+                walk(node.children);
+            }
+        });
+    };
+
+    walk(Array.isArray(nodes) ? nodes : []);
+    return lookup;
+};
+
+const resolveCategoryZhName = (cat, categoryLookup = new Map()) => {
+    const candidates = typeof cat === 'string' ? [cat] : extractCategoryCandidates(cat);
+    for (const candidate of candidates) {
+        const match = categoryLookup.get(normalizeCategoryLookupKey(candidate));
+        if (match) return match;
+    }
+    return '';
+};
+
+export const getCategoryDisplayName = (cat, categoryLookup = new Map()) => {
+    if (!cat) return '未知品类';
 
     const cnName = cat?.name_cn || cat?.category_name_cn || cat?.category_cn;
     if (cnName && !anyCyrillic(cnName)) return cnName;
 
-    const fullName = cat?.category_name || cat?.category || cat?.name || "";
+    const fullName = cat?.category_name || cat?.category || cat?.name || '';
     const match = fullName.match(/\((.*?)\)/);
     if (match) return match[1];
+
+    const treeMatchedName = resolveCategoryZhName(cat, categoryLookup);
+    if (treeMatchedName) return treeMatchedName;
 
     if (fullName.startsWith('RPA采集_')) {
         const parts = fullName.split('_');
@@ -29,7 +109,7 @@ export const getCategoryDisplayName = (cat) => {
     return fullName.split(' - ')[0];
 };
 
-export const getTopCategoryZhLabel = (task, categories = []) => {
+export const getTopCategoryZhLabel = (task, categories = [], categoryLookup = new Map()) => {
     if (task?.top_category_name_cn) return task.top_category_name_cn;
     if (task?.top_category_label) return task.top_category_label;
 
@@ -49,18 +129,20 @@ export const getTopCategoryZhLabel = (task, categories = []) => {
     const topCat = normalizedUpCategories[0];
     if (!topCat) return '一级分类';
 
-    const direct = getCategoryDisplayName(topCat);
+    const direct = getCategoryDisplayName(topCat, categoryLookup);
     if (direct && /[\u4e00-\u9fff]/.test(direct)) return direct;
 
     const topRu = typeof topCat === 'string' ? topCat : (topCat?.name_ru || topCat?.category_name || topCat?.name || '');
     const match = categories.find((c) => (c?.name_ru || c?.category_name || c?.name || '') === topRu);
-    return match?.name_cn || direct || '一级分类';
+    return match?.name_cn || resolveCategoryZhName(topCat, categoryLookup) || direct || '一级分类';
 };
 
 export const buildReportPagination = (currentPage, totalPages) => {
     const total = Number(totalPages);
+    if (!Number.isFinite(total) || Math.floor(total) <= 0) return [];
+
     const page = Number(currentPage);
-    const safeTotalPages = Number.isFinite(total) ? Math.max(1, Math.floor(total)) : 1;
+    const safeTotalPages = Math.floor(total);
     const safeCurrentPage = Number.isFinite(page)
         ? Math.min(safeTotalPages, Math.max(1, Math.floor(page)))
         : 1;
@@ -89,7 +171,7 @@ export const getListedDays = (createdDt) => {
     const createdMs = Date.parse(normalized);
     if (!Number.isFinite(createdMs)) return DEFAULT_LISTED_DAYS_FALLBACK;
 
-    return Math.max(1, Math.floor((Date.now() - createdMs) / (1000 * 60 * 60 * 24)));
+    return Math.max(1, Math.floor((Date.now() - createdMs) / MS_PER_DAY));
 };
 
 export const getTaskDurationLabel = (task) => {
@@ -107,17 +189,19 @@ export const getTaskDurationLabel = (task) => {
 };
 
 export const isHighQualityProduct = (raw, filters, forceNum) => {
-    const listedDays = getListedDays(raw.created_dt);
-    return listedDays <= forceNum(filters.filterDays)
-        && forceNum(raw.sale_qty) >= forceNum(filters.filterSales)
-        && forceNum(raw.review_qty) >= forceNum(filters.filterReviews)
-        && forceNum(raw.sale_price) >= forceNum(filters.filterMinPrice);
+    if (!raw) return false;
+
+    const listedDays = getListedDays(raw?.created_dt);
+    return listedDays <= forceNum(filters?.filterDays ?? 0)
+        && forceNum(raw?.sale_qty ?? 0) >= forceNum(filters?.filterSales ?? 0)
+        && forceNum(raw?.review_qty ?? 0) >= forceNum(filters?.filterReviews ?? 0)
+        && forceNum(raw?.sale_price ?? 0) >= forceNum(filters?.filterMinPrice ?? 0);
 };
 
 export const filterTaskProducts = (taskProducts, onlyHighQuality, filters, forceNum) => (
     taskProducts.filter((tp) => {
         if (!onlyHighQuality) return true;
-        return isHighQualityProduct(tp.products_raw_data, filters, forceNum);
+        return isHighQualityProduct(tp?.products_raw_data, filters, forceNum);
     })
 );
 
@@ -129,20 +213,29 @@ export const getAverageSalesPerProduct = (selectedTask) => {
 };
 
 export const getTaskProductScore = (tp, getMetricScore, selectedTask) => {
-    const raw = tp.products_raw_data;
-    const listedDays = getListedDays(raw.created_dt);
+    const raw = tp?.products_raw_data || {};
+    const listedDays = getListedDays(raw?.created_dt);
     const avgSales = getAverageSalesPerProduct(selectedTask);
-    return getMetricScore('monthly_sales', raw.sale_qty || 0)
-        + getMetricScore('reviews', raw.review_qty || 0)
-        + getMetricScore('price', raw.sale_price || 0)
-        + getMetricScore('days_per_review', listedDays, raw.review_qty || 0)
+
+    return getMetricScore('monthly_sales', raw?.sale_qty || 0)
+        + getMetricScore('reviews', raw?.review_qty || 0)
+        + getMetricScore('price', raw?.sale_price || 0)
+        + getMetricScore('days_per_review', listedDays, raw?.review_qty || 0)
         + getMetricScore('avg_sales', avgSales);
 };
 
-export const sortTaskProducts = (taskProducts, sortBy, getMetricScore, selectedTask) => (
-    [...taskProducts].sort((a, b) => {
-        const ra = a.products_raw_data;
-        const rb = b.products_raw_data;
+export const sortTaskProducts = (taskProducts, sortBy, getMetricScore, selectedTask) => {
+    const scoreCache = new WeakMap();
+    const getScore = (tp) => {
+        if (!scoreCache.has(tp)) {
+            scoreCache.set(tp, getTaskProductScore(tp, getMetricScore, selectedTask));
+        }
+        return scoreCache.get(tp);
+    };
+
+    return [...taskProducts].sort((a, b) => {
+        const ra = a?.products_raw_data || {};
+        const rb = b?.products_raw_data || {};
 
         switch (sortBy) {
             case 'amount':
@@ -159,10 +252,10 @@ export const sortTaskProducts = (taskProducts, sortBy, getMetricScore, selectedT
                 return getListedDays(ra.created_dt) - getListedDays(rb.created_dt);
             case 'score':
             default:
-                return getTaskProductScore(b, getMetricScore, selectedTask) - getTaskProductScore(a, getMetricScore, selectedTask);
+                return getScore(b) - getScore(a);
         }
-    })
-);
+    });
+};
 
 export const parsePreviewImage = (previewImageList, size = 'medium') => {
     if (!previewImageList) return '';

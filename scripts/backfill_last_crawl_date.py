@@ -26,8 +26,23 @@ from psycopg2.extras import execute_values
 
 
 def norm_code(v: str) -> str:
-    s = str(v or "").strip().lstrip("0")
-    return s if s else "0"
+    raw = str(v or "").strip()
+    if not raw:
+        return ""
+    return raw.zfill(5) if raw.isdigit() else raw
+
+
+def code_variants(v: str):
+    raw = str(v or "").strip()
+    if not raw:
+        return []
+
+    variants = []
+    for candidate in (raw, raw.zfill(5) if raw.isdigit() else raw, raw.lstrip("0") or "0"):
+        candidate = str(candidate).strip()
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+    return variants
 
 
 def get_conn():
@@ -69,11 +84,12 @@ def fetch_master_ids(cur) -> Tuple[Dict[str, str], Dict[str, str]]:
     all_ids: Dict[str, str] = {}
     leaf_ids: Dict[str, str] = {}
     for raw_id, is_leaf in cur.fetchall():
-        canonical = str(raw_id)
         normalized = norm_code(raw_id)
-        all_ids[normalized] = canonical
+        if not normalized:
+            continue
+        all_ids[normalized] = normalized
         if is_leaf:
-            leaf_ids[normalized] = canonical
+            leaf_ids[normalized] = normalized
     return all_ids, leaf_ids
 
 
@@ -81,6 +97,8 @@ def update_latest(latest: Dict[str, str], category_id: str, dt: str):
     if not category_id or not dt:
         return
     key = norm_code(category_id)
+    if not key:
+        return
     if key not in latest or dt > latest[key]:
         latest[key] = dt
 
@@ -231,17 +249,15 @@ def main():
 
             # Optional: sync to master table if column exists
             if table_has_column(cur, "algatop_categories_master", "last_crawl_date"):
-                execute_values(
-                    cur,
-                    """
-                    UPDATE algatop_categories_master AS m
-                    SET last_crawl_date = v.last_crawl_date::date
-                    FROM (VALUES %s) AS v(algatop_id, last_crawl_date)
-                    WHERE m.algatop_id::text = v.algatop_id
-                    """,
-                    matched,
-                    page_size=1000,
-                )
+                for code, dt in matched:
+                    cur.execute(
+                        """
+                        UPDATE algatop_categories_master
+                        SET last_crawl_date = %s::date
+                        WHERE algatop_id::text = ANY(%s)
+                        """,
+                        (dt, code_variants(code)),
+                    )
                 print("synced algatop_categories_master.last_crawl_date")
             else:
                 print("algatop_categories_master.last_crawl_date not found, skipped")

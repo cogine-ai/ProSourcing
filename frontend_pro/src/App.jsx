@@ -10,6 +10,7 @@ import PageHeader from './components/PageHeader';
 import StatCard from './components/StatCard';
 import { SystemSettings } from './components/SystemSettings';
 import {
+    buildCategoryNameLookup,
     buildReportPagination,
     getCategoryDisplayName,
     getTopCategoryZhLabel,
@@ -27,18 +28,20 @@ import {
     Play,
     Download,
     Search,
+    ChevronRight,
     Loader2,
     CheckCircle2,
+    XCircle,
     Bell,
     ChevronDown,
     Users,
     LineChart,
+    ChevronLeft,
     Sun,
     Moon
 } from 'lucide-react';
 
 const API_BASE = "http://localhost:8000";
-
 const App = () => {
     const [taskProducts, setTaskProducts] = useState([]);
     const [activeTab, setActiveTab] = useState('archives'); // Default to archives for now
@@ -67,11 +70,6 @@ const App = () => {
         const nums = s.match(/\d+/);
         return nums ? parseInt(nums[0], 10) : 0;
     };
-
-
-    ;
-
-
     // Helper to format ISO date to YYYY.MM.DD HH:mm:ss
     const formatDateTime = (iso) => {
         if (!iso) return '--';
@@ -91,6 +89,7 @@ const App = () => {
     const [isDark, setIsDark] = useState(true);
     const [categories, setCategories] = useState([]);
     const [allCategories, setAllCategories] = useState([]);
+    const [categoryNameLookup, setCategoryNameLookup] = useState(() => new Map());
     const [tasks, setTasks] = useState([]);
     const [selectedTask, setSelectedTask] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -100,6 +99,10 @@ const App = () => {
     const [reportTab, setReportTab] = useState('metrics');
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
     const [algoConfig, setAlgoConfig] = useState(null); // 算法配置状态
+
+    useEffect(() => {
+        setCategoryNameLookup(buildCategoryNameLookup(allCategories));
+    }, [allCategories]);
 
     // 统一评分逻辑：根据 algoConfig 计算
     const getMetricScore = (metricKey, value, secondaryValue = null) => {
@@ -395,7 +398,7 @@ const App = () => {
         try {
             const res = await fetch(`${API_BASE}/api/tasks/${taskId}/retry`, { method: 'POST' });
             if (res.ok) {
-                alert('浠诲姟宸查噸鏂板姞鍏ラ噰闆嗛槦鍒楋紒');
+                alert('任务已重新加入采集队列！');
                 fetchHistory();
             }
         } catch (e) { console.error("Retry task failed", e); }
@@ -688,10 +691,10 @@ const App = () => {
                                                                 <div className="flex justify-between items-start mb-4 border-b border-border/40 pb-3">
                                                                     <div className="pr-3 flex-1 min-w-0">
                                                                         <h4 className="font-black text-foreground text-xl truncate flex items-center gap-2" title={task.category}>
-                                                                            {getCategoryDisplayName(task)}
-                                                                            {getTopCategoryZhLabel(task, categories) !== '一级分类' && (
+                                                                            {getCategoryDisplayName(task, categoryNameLookup)}
+                                                                            {getTopCategoryZhLabel(task, categories, categoryNameLookup) !== '一级分类' && (
                                                                                 <span className="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[10px] uppercase font-bold tracking-widest rounded-md shrink-0">
-                                                                                    {getTopCategoryZhLabel(task, categories)}
+                                                                                    {getTopCategoryZhLabel(task, categories, categoryNameLookup)}
                                                                                 </span>
                                                                             )}
                                                                         </h4>
@@ -887,7 +890,7 @@ const App = () => {
                                                     <div className="flex flex-col items-end">
                                                         <div className="flex items-center gap-4">
                                                             <h2 className="text-[32px] font-black text-foreground leading-tight tracking-tighter">
-                                                                {getCategoryDisplayName(selectedTask)}
+                                                                {getCategoryDisplayName(selectedTask, categoryNameLookup)}
                                                             </h2>
                                                             {selectedTask?.excel_path && (
                                                                 <a
@@ -1309,7 +1312,7 @@ const App = () => {
                                                                         <th className="px-6 py-4 text-center">ABC 分类</th>
                                                                         <th className="px-6 py-4 text-right">月销售额</th>
                                                                         <th className="px-6 py-4">上架时间</th>
-                                                                        <th className="px-6 py-4">闄愬埗绫诲瀷</th>
+                                                                        <th className="px-6 py-4">限制类型</th>
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-border/20">
