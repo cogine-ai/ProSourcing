@@ -80,11 +80,17 @@ export const buildReportPagination = (currentPage, totalPages) => {
     return [1, 'ellipsis-left', safeCurrentPage - 1, safeCurrentPage, safeCurrentPage + 1, 'ellipsis-right', safeTotalPages];
 };
 
-export const getListedDays = (createdDt) => (
-    createdDt
-        ? Math.max(1, Math.floor((new Date() - new Date(createdDt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24)))
-        : DEFAULT_LISTED_DAYS_FALLBACK
-);
+export const getListedDays = (createdDt) => {
+    if (!createdDt) return DEFAULT_LISTED_DAYS_FALLBACK;
+
+    const normalized = typeof createdDt === 'string'
+        ? createdDt.split('.')[0].replace(' ', 'T')
+        : createdDt;
+    const createdMs = Date.parse(normalized);
+    if (!Number.isFinite(createdMs)) return DEFAULT_LISTED_DAYS_FALLBACK;
+
+    return Math.max(1, Math.floor((Date.now() - createdMs) / (1000 * 60 * 60 * 24)));
+};
 
 export const getTaskDurationLabel = (task) => {
     if (task?.duration) return task.duration;
