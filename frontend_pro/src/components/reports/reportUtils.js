@@ -1,4 +1,11 @@
 export const anyCyrillic = (str) => /[\u0400-\u04FF]/.test(str);
+const DEFAULT_LISTED_DAYS_FALLBACK = 999;
+
+const forceIntFallback = (value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+};
 
 export const getCategoryDisplayName = (cat) => {
     if (!cat) return "未知品类";
@@ -51,11 +58,12 @@ export const getTopCategoryZhLabel = (task, categories = []) => {
 };
 
 export const buildReportPagination = (currentPage, totalPages) => {
-    const safeTotalPages = Math.max(1, Number(totalPages) || 1);
-    const safeCurrentPage = Math.min(
-        safeTotalPages,
-        Math.max(1, Number(currentPage) || 1)
-    );
+    const total = Number(totalPages);
+    const page = Number(currentPage);
+    const safeTotalPages = Number.isFinite(total) ? Math.max(1, Math.floor(total)) : 1;
+    const safeCurrentPage = Number.isFinite(page)
+        ? Math.min(safeTotalPages, Math.max(1, Math.floor(page)))
+        : 1;
 
     if (safeTotalPages <= 7) {
         return Array.from({ length: safeTotalPages }, (_, index) => index + 1);
@@ -75,7 +83,7 @@ export const buildReportPagination = (currentPage, totalPages) => {
 export const getListedDays = (createdDt) => (
     createdDt
         ? Math.max(1, Math.floor((new Date() - new Date(createdDt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24)))
-        : 999
+        : DEFAULT_LISTED_DAYS_FALLBACK
 );
 
 export const getTaskDurationLabel = (task) => {
@@ -84,6 +92,8 @@ export const getTaskDurationLabel = (task) => {
 
     const start = new Date(task.created_at);
     const end = new Date(task.finished_at);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return '--';
+
     const diff = Math.floor((end - start) / 1000);
     const minutes = Math.floor(diff / 60);
     const seconds = diff % 60;
@@ -106,16 +116,10 @@ export const filterTaskProducts = (taskProducts, onlyHighQuality, filters, force
 );
 
 export const getAverageSalesPerProduct = (selectedTask) => {
-    const saleQty = force_int_fallback(selectedTask?.category_stats?.sale_qty);
-    const productQty = force_int_fallback(selectedTask?.category_stats?.sale_product_qty);
+    const saleQty = forceIntFallback(selectedTask?.category_stats?.sale_qty);
+    const productQty = forceIntFallback(selectedTask?.category_stats?.sale_product_qty);
     if (productQty <= 0) return 0;
     return saleQty / productQty;
-};
-
-const force_int_fallback = (value) => {
-    if (value === null || value === undefined || value === '') return 0;
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : 0;
 };
 
 export const getTaskProductScore = (tp, getMetricScore, selectedTask) => {
@@ -159,7 +163,8 @@ export const parsePreviewImage = (previewImageList, size = 'medium') => {
 
     try {
         const parsed = typeof previewImageList === 'string' ? JSON.parse(previewImageList) : previewImageList;
-        return parsed?.[0]?.[size] || parsed?.[0]?.medium || '';
+        const item = Array.isArray(parsed) ? parsed[0] : parsed;
+        return item?.[size] || item?.medium || '';
     } catch {
         return '';
     }

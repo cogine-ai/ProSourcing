@@ -37,7 +37,7 @@ export function LogViewer({ apiBase, taskId, onClose }) {
                 <div className="p-4 border-b border-border flex justify-between items-center bg-muted/20">
                     <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                        <h3 className="font-black text-xs uppercase tracking-widest">Task Runtime Logs // {taskId.slice(0, 8)}</h3>
+                        <h3 className="font-black text-xs uppercase tracking-widest">Task Runtime Logs // {taskId?.slice(0, 8) ?? '--'}</h3>
                     </div>
                     <div className="flex items-center gap-4">
                         <label className="flex items-center gap-2 cursor-pointer group">

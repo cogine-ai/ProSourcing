@@ -1,7 +1,7 @@
 import { PDL } from '../lib/pdl';
 
 export default function CategoryCard({ cat }) {
-    const ratio = cat.sale_product_qty > 0 ? (cat.monthly_sales / cat.sale_product_qty).toFixed(2) : 0;
+    const ratio = ((cat.sale_product_qty > 0 ? cat.monthly_sales / cat.sale_product_qty : 0)).toFixed(2);
     const ruName = cat?.name_ru || (cat?.category_name?.match(/^(.*)\s\(.*\)$/) || [null, cat?.category_name])[1] || cat?.name || "";
     const zhName = cat?.name_cn || (cat?.category_name?.match(/\s\((.*)\)$/) || [null, ""])[1] || "";
 
