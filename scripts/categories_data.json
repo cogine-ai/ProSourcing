@@ -1,0 +1,3 @@
+ERROR:  COPY format "json" not recognized
+LINE 1: ...* FROM algatop_categories_master) TO STDOUT WITH (FORMAT JSO...
+                                                             ^
