@@ -154,9 +154,9 @@ export const sortTaskProducts = (taskProducts, sortBy, getMetricScore, selectedT
             case 'reviews':
                 return (rb.review_qty || 0) - (ra.review_qty || 0);
             case 'days_desc':
-                return getListedDays(ra.created_dt) - getListedDays(rb.created_dt);
-            case 'days_asc':
                 return getListedDays(rb.created_dt) - getListedDays(ra.created_dt);
+            case 'days_asc':
+                return getListedDays(ra.created_dt) - getListedDays(rb.created_dt);
             case 'score':
             default:
                 return getTaskProductScore(b, getMetricScore, selectedTask) - getTaskProductScore(a, getMetricScore, selectedTask);
