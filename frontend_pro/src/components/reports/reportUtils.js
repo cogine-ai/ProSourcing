@@ -51,19 +51,25 @@ export const getTopCategoryZhLabel = (task, categories = []) => {
 };
 
 export const buildReportPagination = (currentPage, totalPages) => {
-    if (totalPages <= 7) {
-        return Array.from({ length: totalPages }, (_, index) => index + 1);
+    const safeTotalPages = Math.max(1, Number(totalPages) || 1);
+    const safeCurrentPage = Math.min(
+        safeTotalPages,
+        Math.max(1, Number(currentPage) || 1)
+    );
+
+    if (safeTotalPages <= 7) {
+        return Array.from({ length: safeTotalPages }, (_, index) => index + 1);
     }
 
-    if (currentPage <= 4) {
-        return [1, 2, 3, 4, 5, 'ellipsis-right', totalPages];
+    if (safeCurrentPage <= 4) {
+        return [1, 2, 3, 4, 5, 'ellipsis-right', safeTotalPages];
     }
 
-    if (currentPage >= totalPages - 3) {
-        return [1, 'ellipsis-left', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    if (safeCurrentPage >= safeTotalPages - 3) {
+        return [1, 'ellipsis-left', safeTotalPages - 4, safeTotalPages - 3, safeTotalPages - 2, safeTotalPages - 1, safeTotalPages];
     }
 
-    return [1, 'ellipsis-left', currentPage - 1, currentPage, currentPage + 1, 'ellipsis-right', totalPages];
+    return [1, 'ellipsis-left', safeCurrentPage - 1, safeCurrentPage, safeCurrentPage + 1, 'ellipsis-right', safeTotalPages];
 };
 
 export const getListedDays = (createdDt) => (
