@@ -3,8 +3,18 @@ import './index.css';
 import { PDL } from './lib/pdl';
 import { TASK_STATUS } from './constants';
 import Breadcrumbs from './components/Breadcrumbs';
+import CategoryCard from './components/CategoryCard';
 import { KaspiTaskView } from './components/KaspiTaskView';
+import { LogViewer } from './components/LogViewer';
+import PageHeader from './components/PageHeader';
+import StatCard from './components/StatCard';
 import { SystemSettings } from './components/SystemSettings';
+import {
+    buildCategoryNameLookup,
+    buildReportPagination,
+    getCategoryDisplayName,
+    getTopCategoryZhLabel,
+} from './components/reports/reportUtils';
 import {
     LayoutDashboard,
     Target,
@@ -14,6 +24,7 @@ import {
     Package,
     TrendingUp,
     BarChart3,
+    ArrowUpRight,
     Play,
     Download,
     Search,
@@ -22,7 +33,6 @@ import {
     CheckCircle2,
     XCircle,
     Bell,
-    ArrowUpRight,
     ChevronDown,
     Users,
     LineChart,
@@ -32,289 +42,6 @@ import {
 } from 'lucide-react';
 
 const API_BASE = "http://localhost:8000";
-
-const PageHeader = ({ title, description, actions }) => (
-    <div className="mb-8 flex justify-between items-start animate-in fade-in slide-in-from-left-4 duration-500">
-        <div>
-            <h1 className="text-3xl font-black text-foreground tracking-tight mb-2">{title}</h1>
-            <p className="text-muted-foreground text-sm font-medium">{description}</p>
-        </div>
-        {actions && <div className="flex gap-3">{actions}</div>}
-    </div>
-);
-
-// --- 日志查看器组件 ---
-const LogViewer = ({ taskId, onClose }) => {
-    const [logs, setLogs] = useState("Loading logs...");
-    const [autoScroll, setAutoScroll] = useState(true);
-    const logEndRef = React.useRef(null);
-
-    useEffect(() => {
-        const fetchLogs = async () => {
-            try {
-                const res = await fetch(`${API_BASE}/api/tasks/${taskId}/logs`);
-                const data = await res.json();
-                setLogs(data.logs || "No logs found yet.");
-            } catch (err) { setLogs("Error fetching logs."); }
-        };
-
-        fetchLogs();
-        const timer = setInterval(fetchLogs, 3000);
-        return () => clearInterval(timer);
-    }, [taskId]);
-
-    useEffect(() => {
-        if (autoScroll && logEndRef.current) {
-            logEndRef.current.scrollIntoView({ behavior: 'smooth' });
-        }
-    }, [logs, autoScroll]);
-
-    return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="bg-card border border-border w-full max-w-4xl h-[70vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
-                <div className="p-4 border-b border-border flex justify-between items-center bg-muted/20">
-                    <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                        <h3 className="font-black text-xs uppercase tracking-widest">Task Runtime Logs // {taskId.slice(0, 8)}</h3>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <label className="flex items-center gap-2 cursor-pointer group">
-                            <span className="text-[10px] font-bold text-muted-foreground uppercase group-hover:text-foreground">Auto-scroll</span>
-                            <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="accent-primary" />
-                        </label>
-                        <button onClick={onClose} className="p-1 hover:bg-muted rounded-md transition-colors text-muted-foreground hover:text-foreground">
-                            <XCircle size={20} />
-                        </button>
-                    </div>
-                </div>
-                <div className="flex-1 overflow-y-auto p-6 bg-[#09090b] font-mono text-[11px] leading-relaxed custom-scrollbar selection:bg-primary/30">
-                    <pre className="whitespace-pre-wrap text-emerald-500/90">
-                        {logs}
-                        <div ref={logEndRef} />
-                    </pre>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- 原子组件：指标卡片 ---
-const StatCard = ({ label, value, icon }) => (
-    <div className={`bg-card border border-border ${PDL.radius.card} rounded-card-force p-7 hover:border-primary/40 transition-all shadow-sm group relative overflow-hidden h-full`}>
-        <div className="flex items-center justify-between mb-5">
-            <div className={`p-3 ${PDL.radius.inner} bg-muted/40 border border-border group-hover:scale-105 transition-transform`}>
-                {icon}
-            </div>
-            <ArrowUpRight size={16} className="text-muted-foreground opacity-30" />
-        </div>
-        <p className={`${PDL.typography.label} text-muted-foreground mb-1`}>{label}</p>
-        <p className={`${PDL.typography.stat} text-foreground line-clamp-1`}>{value}</p>
-    </div>
-);
-
-const normalizeCategoryLookupKey = (value) => String(value || '').trim().toLowerCase();
-
-const extractCategoryCandidates = (cat) => {
-    if (!cat) return [];
-
-    const candidates = new Set();
-    const push = (value) => {
-        if (!value && value !== 0) return;
-        const text = String(value).trim();
-        if (!text) return;
-        candidates.add(text);
-    };
-
-    [
-        cat?.name_ru,
-        cat?.category_name,
-        cat?.category,
-        cat?.name,
-        cat?.title,
-        cat?.category_code,
-        cat?.category_id,
-        cat?.algatop_id,
-        cat?.id,
-    ].forEach(push);
-
-    const fullName = cat?.category_name || cat?.category || cat?.name || cat?.title || '';
-    if (fullName) {
-        push(fullName.split(' - ')[0]);
-
-        const bracketRuName = fullName.replace(/\s*\(.*?\)\s*/g, '').trim();
-        push(bracketRuName);
-
-        if (fullName.startsWith('RPA采集_')) {
-            const parts = fullName.split('_');
-            if (parts.length > 1) {
-                push(parts[1]);
-                push(parts[1].replace(/\(.*?\)/g, '').trim());
-            }
-        }
-    }
-
-    return Array.from(candidates);
-};
-
-const buildCategoryNameLookup = (nodes = []) => {
-    const lookup = new Map();
-
-    const walk = (nodeList) => {
-        nodeList.forEach((node) => {
-            if (!node) return;
-
-            const zhName = node?.name_cn || node?.category_name_cn || node?.category_cn;
-            if (zhName && !anyCyrillic(zhName)) {
-                extractCategoryCandidates(node).forEach((candidate) => {
-                    lookup.set(normalizeCategoryLookupKey(candidate), zhName);
-                });
-            }
-
-            if (Array.isArray(node?.children) && node.children.length > 0) {
-                walk(node.children);
-            }
-        });
-    };
-
-    walk(Array.isArray(nodes) ? nodes : []);
-    return lookup;
-};
-
-const resolveCategoryZhName = (cat, categoryLookup = new Map()) => {
-    const candidates = typeof cat === 'string' ? [cat] : extractCategoryCandidates(cat);
-    for (const candidate of candidates) {
-        const match = categoryLookup.get(normalizeCategoryLookupKey(candidate));
-        if (match) return match;
-    }
-    return '';
-};
-
-// --- 原子组件：类目卡片 ---
-const getCategoryDisplayName = (cat, categoryLookup = new Map()) => {
-    if (!cat) return "未知品类";
-    
-    // 优先使用后端提供的中文名
-    const cnName = cat?.name_cn || cat?.category_name_cn || cat?.category_cn;
-    if (cnName && !anyCyrillic(cnName)) return cnName;
-
-    // 兼容对象结构 (cat_stats) 或 "俄文(中文)" 格式
-    const fullName = cat?.category_name || cat?.category || cat?.name || "";
-    
-    // 尝试提取括号中的中文
-    const match = fullName.match(/\((.*?)\)/);
-    if (match) return match[1];
-
-    const treeMatchedName = resolveCategoryZhName(cat, categoryLookup);
-    if (treeMatchedName) return treeMatchedName;
-
-    // 兼容 "RPA采集_俄文(中文)_日期" 结构
-    if (fullName.startsWith('RPA采集_')) {
-        const parts = fullName.split('_');
-        if (parts.length > 1) {
-            const subMatch = parts[1].match(/\((.*?)\)/);
-            if (subMatch) return subMatch[1];
-            return parts[1];
-        }
-    }
-
-    // 兜底：取横杠前的名称
-    return fullName.split(' - ')[0];
-};
-
-const getTopCategoryZhLabel = (task, categories = [], categoryLookup = new Map()) => {
-    if (task?.top_category_name_cn) return task.top_category_name_cn;
-    if (task?.top_category_label) return task.top_category_label;
-
-    const normalizedUpCategories = Array.isArray(task?.up_categories)
-        ? task.up_categories
-        : (typeof task?.up_categories === 'string'
-            ? (() => {
-                try {
-                    const parsed = JSON.parse(task.up_categories);
-                    return Array.isArray(parsed) ? parsed : [];
-                } catch {
-                    return [];
-                }
-            })()
-            : []);
-
-    const topCat = normalizedUpCategories[0];
-    if (!topCat) return '一级分类';
-
-    const direct = getCategoryDisplayName(topCat, categoryLookup);
-    if (direct && /[\u4e00-\u9fff]/.test(direct)) return direct;
-
-    const topRu = typeof topCat === 'string' ? topCat : (topCat?.name_ru || topCat?.category_name || topCat?.name || '');
-    const match = categories.find(c => (c?.name_ru || c?.category_name || c?.name || '') === topRu);
-    return match?.name_cn || resolveCategoryZhName(topCat, categoryLookup) || direct || '一级分类';
-};
-
-const buildReportPagination = (currentPage, totalPages) => {
-    if (totalPages <= 7) {
-        return Array.from({ length: totalPages }, (_, index) => index + 1);
-    }
-
-    if (currentPage <= 4) {
-        return [1, 2, 3, 4, 5, 'ellipsis-right', totalPages];
-    }
-
-    if (currentPage >= totalPages - 3) {
-        return [1, 'ellipsis-left', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
-    }
-
-    return [1, 'ellipsis-left', currentPage - 1, currentPage, currentPage + 1, 'ellipsis-right', totalPages];
-};
-
-// 检测是否包含西里尔字符
-const anyCyrillic = (str) => {
-    return /[\u0400-\u04FF]/.test(str);
-};
-
-const CategoryCard = ({ cat }) => {
-    const ratio = cat.sale_product_qty > 0 ? (cat.monthly_sales / cat.sale_product_qty).toFixed(2) : 0;
-
-    // 拆分中俄双语：格式 "俄文 (中文)"
-    const ruName = cat?.name_ru || (cat?.category_name?.match(/^(.*)\s\(.*\)$/) || [null, cat?.category_name])[1] || cat?.name || "";
-    const zhName = cat?.name_cn || (cat?.category_name?.match(/\s\((.*)\)$/) || [null, ""])[1] || "";
-
-    return (
-        <div className={`bg-card border border-border ${PDL.radius.card} rounded-card-force p-8 hover:border-primary/50 transition-all shadow-md flex flex-col justify-between group h-[320px]`}>
-            {/* 头部：标题区 */}
-            <div className="mb-8">
-                <h3 className="text-2xl font-black leading-tight text-foreground group-hover:text-primary transition-colors flex flex-col gap-1">
-                    <span>{zhName || ruName}</span>
-                    {zhName && <span className="text-xs font-bold text-muted-foreground/30 font-mono italic">/ {ruName}</span>}
-                </h3>
-
-            </div>
-
-            {/* 中间：核心指标 */}
-            <div className="flex flex-col gap-6">
-                <div className="group/item">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 mb-1 border-l-2 border-primary/20 pl-3">月销量</p>
-                    <p className="text-2xl font-black text-foreground tracking-tight transition-transform group-hover/item:translate-x-1">{(cat.monthly_sales || 0).toLocaleString()}</p>
-                </div>
-
-                <div className="group/item">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 mb-1 border-l-2 border-border pl-3">商品数</p>
-                    <p className="text-xl font-bold text-muted-foreground tracking-tight transition-transform group-hover/item:translate-x-1">{(cat.sale_product_qty || 0).toLocaleString()}</p>
-                </div>
-            </div>
-
-            {/* 底部：效率指标 */}
-            <div className="mt-4 pt-4 border-t border-border/10">
-                <div className="flex justify-between items-center">
-                    <div className="flex flex-col">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-primary/50">销品比效率</p>
-
-                    </div>
-                    <p className="text-3xl font-black text-primary font-mono tracking-tighter">{ratio}</p>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 const App = () => {
     const [taskProducts, setTaskProducts] = useState([]);
     const [activeTab, setActiveTab] = useState('archives'); // Default to archives for now
@@ -343,11 +70,6 @@ const App = () => {
         const nums = s.match(/\d+/);
         return nums ? parseInt(nums[0], 10) : 0;
     };
-
-
-    ;
-
-
     // Helper to format ISO date to YYYY.MM.DD HH:mm:ss
     const formatDateTime = (iso) => {
         if (!iso) return '--';
@@ -1760,7 +1482,7 @@ const App = () => {
                         )}
                     </div>
                 </main>
-                {viewLogId && <LogViewer taskId={viewLogId} onClose={() => setViewLogId(null)} />}
+                {viewLogId && <LogViewer apiBase={API_BASE} taskId={viewLogId} onClose={() => setViewLogId(null)} />}
             </div>
         </div>
     );
