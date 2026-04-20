@@ -3,119 +3,100 @@ import os
 import psycopg2
 from psycopg2.extras import execute_values
 
-def find_data_file():
-    candidates = [
-        "/app/scripts/full_category_data.json",
-        "scripts/full_category_data.json",
-        "/app/scripts/新建文件夹/full_category_data.json",
-        "full_category_data.json"
-    ]
-    for c in candidates:
-        if os.path.exists(c):
-            return c
+VERIFIED_TOP_CATEGORY_COUNTS = {
+    "00933": 1939806, "00299": 493504, "00751": 772686, "00240": 1565665,
+    "06498": 1058193, "00083": 333258, "00002": 1484102, "02807": 100437,
+    "00079": 1377666, "02605": 247301, "00791": 522075, "00147": 437012,
+    "00239": 547487, "00754": 533712, "00005": 365904, "00864": 395022,
+    "02062": 126858, "00034": 101593, "01793": 23144, "00012": 62256,
+    "01466": 85313,
+}
+
+def find_master_file():
+    candidates = ["/app/scripts/full_category_data.json", "scripts/full_category_data.json", "full_category_data.json"]
+    for p in candidates:
+        if os.path.exists(p): return p
     return None
 
-def extract_list(data):
-    # 智能解析：找到真正的列表
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        # 可能是索引字典 {"0": {...}, "1": {...}}
-        if all(k.isdigit() for k in list(data.keys())[:10]):
-            return list(data.values())
-        # 可能是包装字典 {"items": [...], "status": "ok"}
-        for k, v in data.items():
-            if isinstance(v, list) and len(v) > 10:
-                print(f"🎯 Auto-detected data in key: '{k}'")
-                return v
-    return None
+def load_json(path):
+    with open(path, "r", encoding="utf-8-sig") as fh: return json.load(fh)
+
+def normalize_text(v):
+    return " ".join(str(v or "").split()).strip()
 
 def seed_db():
-    print("🚀 [ProSourcing] Starting SMART JSON seed process...")
-    json_path = find_data_file()
-    if not json_path:
-        print("❌ Error: File not found.")
-        return
+    print("[ProSourcing] Starting FORCE SEED process (v2)...")
+    master_file = find_master_file()
+    if not master_file: raise RuntimeError("full_category_data.json not found")
+    data = load_json(master_file)
+    master_list = data.get('master', [])
+    stats_list = data.get('stats', [])
 
-    print(f"📖 Reading JSON: {json_path}...")
-    with open(json_path, 'r', encoding='utf-8') as f:
-        raw_data = json.load(f)
+    db_url = os.environ.get("DATABASE_URL", "postgresql://postgres:prosourcing123@db:5432/prosourcing")
     
-    # 哥，针对新版 JSON 结构 {"master": [], "stats": []} 进行适配
-    master_list = []
-    stats_list = []
-    
-    if isinstance(raw_data, dict):
-        master_list = raw_data.get('master', [])
-        stats_list = raw_data.get('stats', [])
-        # 如果 master 为空，尝试用旧的自动探测逻辑
-        if not master_list:
-            master_list = extract_list(raw_data) or []
-    elif isinstance(raw_data, list):
-        master_list = raw_data
-        
-    if not master_list:
-        print("❌ Error: Could not extract master list from JSON.")
-        return
-
-    print(f"📊 Items to process: Master={len(master_list)}, Stats={len(stats_list)}")
-
-    try:
-        db_url = os.environ.get("DATABASE_URL", "postgresql://postgres:prosourcing123@db:5432/prosourcing")
-        conn = psycopg2.connect(db_url)
-        cur = conn.cursor()
-        
-        # 1. Categories Master
-        if master_list:
-            print("🛠️ Updating master...")
-            master_data = []
-            for item in master_list:
-                if not isinstance(item, dict): continue
-                master_data.append((
-                    item.get('algatop_id'),
-                    item.get('name_ru'),
-                    item.get('name_cn'),
-                    item.get('name_en'),
-                    item.get('parent_id'),
-                    item.get('level'),
-                    item.get('is_leaf', False),
-                    item.get('monthly_sales', 0)
-                ))
-            
+    with psycopg2.connect(db_url) as conn:
+        with conn.cursor() as cur:
+            # 1. Seed Master Table
+            print(f"Truncating and seeding master table ({len(master_list)} rows)...")
             cur.execute("TRUNCATE TABLE algatop_categories_master CASCADE;")
-            execute_values(cur, "INSERT INTO algatop_categories_master (algatop_id, name_ru, name_cn, name_en, parent_id, level, is_leaf, monthly_sales) VALUES %s", master_data)
-            print(f"✅ Master injected: {len(master_data)} items.")
-
-        # 2. Roots Stats (如果 JSON 里有 stats 节点则优先使用，否则尝试从 master 里捞)
-        final_stats_list = stats_list
-        if not final_stats_list:
-            print("⚠️ Stats list empty, falling back to master for level 1 stats...")
-            final_stats_list = [item for item in master_list if isinstance(item, dict) and (item.get('is_top_level') or item.get('level') == 1)]
-
-        if final_stats_list:
-            print(f"🔥 Updating {len(final_stats_list)} root stats...")
-            stats_data = []
-            for item in final_stats_list:
-                if not isinstance(item, dict): continue
-                stats_data.append((
-                    item.get('algatop_id', item.get('id')),
-                    item.get('sales_qty', 0),
-                    item.get('revenue', 0),
-                    item.get('product_count', 0),
-                    item.get('seller_count', 0),
-                    item.get('brand_count', 0)
+            m_rows = []
+            for item in master_list:
+                m_rows.append((
+                    str(item.get("algatop_id") or "").strip(),
+                    normalize_text(item.get("name_ru")),
+                    normalize_text(item.get("name_cn")),
+                    normalize_text(item.get("name_en")),
+                    str(item.get("parent_id") or "").strip() or None,
+                    item.get("level"),
+                    bool(item.get("is_leaf", False)),
+                    item.get("monthly_sales", 0)
                 ))
-            
-            cur.execute("TRUNCATE TABLE algatop_top_category_stats CASCADE;")
-            execute_values(cur, "INSERT INTO algatop_top_category_stats (algatop_id, sales_qty, revenue, product_count, seller_count, brand_count) VALUES %s", stats_data)
-            print(f"✅ Stats injected: {len(stats_data)} items.")
+            execute_values(cur, "INSERT INTO algatop_categories_master (algatop_id, name_ru, name_cn, name_en, parent_id, level, is_leaf, monthly_sales) VALUES %s", m_rows)
 
-        conn.commit()
-    except Exception as e:
-        print(f"❌ DB Error: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
+            # 2. Seed Categories Table (强制包含 is_top_level)
+            print(f"Truncating and seeding categories table...")
+            cur.execute("TRUNCATE TABLE categories CASCADE;")
+            c_rows = []
+            for item in master_list:
+                ru = normalize_text(item.get("name_ru"))
+                cn = normalize_text(item.get("name_cn"))
+                c_rows.append((
+                    str(item.get("algatop_id") or "").strip(),
+                    cn or ru,
+                    str(item.get("parent_id") or "").strip() or None,
+                    item.get("monthly_sales", 0),
+                    str(item.get("algatop_id") or "").strip(),
+                    ru, cn or None,
+                    item.get("level"),
+                    bool(item.get("is_leaf", False)),
+                    item.get("level") == 1, # is_top_level
+                    0 if item.get("is_leaf") else 1 # is_has_subcategory
+                ))
+            execute_values(cur, """
+                INSERT INTO categories 
+                (category_id, category_name, parent_category_id, monthly_sales, algatop_id, name_ru, name_cn, level, is_leaf, is_top_level, is_has_subcategory)
+                VALUES %s
+            """, c_rows)
+
+            # 3. Seed Stats
+            print(f"Seeding stats table ({len(stats_list)} rows)...")
+            cur.execute("TRUNCATE TABLE algatop_top_category_stats CASCADE;")
+            s_rows = []
+            for item in stats_list:
+                s_rows.append((
+                    str(item.get("algatop_id") or "").strip(),
+                    item.get("sales_qty", 0), item.get("revenue", 0),
+                    item.get("product_count", 0), item.get("seller_count", 0), item.get("brand_count", 0)
+                ))
+            execute_values(cur, "INSERT INTO algatop_top_category_stats (algatop_id, sales_qty, revenue, product_count, seller_count, brand_count) VALUES %s", s_rows)
+
+            # 4. Apply Verified Counts
+            print("Applying verified counts...")
+            for cid, val in VERIFIED_TOP_CATEGORY_COUNTS.items():
+                cur.execute("UPDATE categories SET sale_product_qty = %s WHERE category_id = %s OR algatop_id = %s", (val, cid, cid))
+
+            conn.commit()
+            print(f"\n[DONE] Success! Seeded {len(m_rows)} categories. Homepage stats should be restored.")
 
 if __name__ == "__main__":
     seed_db()

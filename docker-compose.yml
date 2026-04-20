@@ -15,7 +15,7 @@ services:
     restart: always
 
   backend:
-    image: prosourcing-backend:20260402
+    image: prosourcing-backend:v20260420
     container_name: prosourcing_backend
     environment:
       - DATABASE_URL=postgresql://${PG_USER:-postgres}:${PG_PASSWORD:-prosourcing123}@db:5432/${PG_DB:-prosourcing}
@@ -38,7 +38,7 @@ services:
     restart: always
 
   frontend:
-    image: prosourcing-frontend:20260402
+    image: prosourcing-frontend:v20260420
     container_name: prosourcing_frontend
     ports:
       - "${FRONTEND_PORT:-80}:80"

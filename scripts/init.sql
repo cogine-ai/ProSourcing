@@ -110,6 +110,8 @@ CREATE TABLE IF NOT EXISTS public.categories (
     name_en TEXT,
     level INTEGER,
     is_leaf BOOLEAN DEFAULT FALSE,
+    is_top_level BOOLEAN DEFAULT FALSE,
+    is_has_subcategory INTEGER DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
 );
@@ -191,6 +193,8 @@ ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS name_cn TEXT;
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS name_en TEXT;
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS level INTEGER;
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS is_leaf BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS is_top_level BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS is_has_subcategory INTEGER DEFAULT 1;
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now());
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now());
 
@@ -202,9 +206,13 @@ CREATE INDEX IF NOT EXISTS idx_tasks_top_category_name_cn ON public.analysis_tas
 CREATE INDEX IF NOT EXISTS idx_tasks_updated_at ON public.analysis_tasks(updated_at);
 CREATE INDEX IF NOT EXISTS idx_master_parent ON public.algatop_categories_master(parent_id);
 CREATE INDEX IF NOT EXISTS idx_master_level ON public.algatop_categories_master(level);
+CREATE INDEX IF NOT EXISTS idx_master_name_ru ON public.algatop_categories_master(name_ru);
+CREATE INDEX IF NOT EXISTS idx_master_name_cn ON public.algatop_categories_master(name_cn);
 CREATE INDEX IF NOT EXISTS idx_categories_parent ON public.categories(parent_category_id);
 CREATE INDEX IF NOT EXISTS idx_categories_algatop_id ON public.categories(algatop_id);
 CREATE INDEX IF NOT EXISTS idx_categories_monthly_sales ON public.categories(monthly_sales);
+CREATE INDEX IF NOT EXISTS idx_categories_name_ru ON public.categories(name_ru);
+CREATE INDEX IF NOT EXISTS idx_categories_name_cn ON public.categories(name_cn);
 
 INSERT INTO public.system_settings (key, value, description)
 VALUES

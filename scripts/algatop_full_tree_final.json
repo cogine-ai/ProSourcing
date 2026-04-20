@@ -1,0 +1,212 @@
+[
+  {
+    "category_id": "00002",
+    "parent_category_id": "",
+    "category_name": "Телефоны и гаджеты",
+    "sale_qty": 299259,
+    "sale_amount": 11947726307,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -69,
+    "restrict_type": 3
+  },
+  {
+    "category_id": "00005",
+    "parent_category_id": "",
+    "category_name": "Компьютеры",
+    "sale_qty": 82060,
+    "sale_amount": 2797640048,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -74,
+    "restrict_type": 0
+  },
+  {
+    "category_id": "00012",
+    "parent_category_id": "",
+    "category_name": "ТВ, Аудио, Видео",
+    "sale_qty": 112738,
+    "sale_amount": 2399638451,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -74,
+    "restrict_type": 0
+  },
+  {
+    "category_id": "00034",
+    "parent_category_id": "",
+    "category_name": "Бытовая техника",
+    "sale_qty": 209069,
+    "sale_amount": 6624717338,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -66,
+    "restrict_type": 0
+  },
+  {
+    "category_id": "00079",
+    "parent_category_id": "",
+    "category_name": "Автотовары",
+    "sale_qty": 356871,
+    "sale_amount": 6619356791,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -41,
+    "restrict_type": 3
+  },
+  {
+    "category_id": "00083",
+    "parent_category_id": "",
+    "category_name": "Детские товары",
+    "sale_qty": 278065,
+    "sale_amount": 1623632033,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -68,
+    "restrict_type": 4
+  },
+  {
+    "category_id": "00147",
+    "parent_category_id": "",
+    "category_name": "Досуг, книги",
+    "sale_qty": 203950,
+    "sale_amount": 593647100,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -75,
+    "restrict_type": 4
+  },
+  {
+    "category_id": "00239",
+    "parent_category_id": "",
+    "category_name": "Мебель",
+    "sale_qty": 121138,
+    "sale_amount": 3680328708,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -69,
+    "restrict_type": 0
+  },
+  {
+    "category_id": "00240",
+    "parent_category_id": "",
+    "category_name": "Товары для дома и дачи",
+    "sale_qty": 1326863,
+    "sale_amount": 4318809995,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -68,
+    "restrict_type": 0
+  },
+  {
+    "category_id": "00299",
+    "parent_category_id": "",
+    "category_name": "Красота и здоровье",
+    "sale_qty": 1493643,
+    "sale_amount": 4792935007,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -73,
+    "restrict_type": 4
+  },
+  {
+    "category_id": "00751",
+    "parent_category_id": "",
+    "category_name": "Аксессуары",
+    "sale_qty": 304807,
+    "sale_amount": 915811315,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -72,
+    "restrict_type": 4
+  },
+  {
+    "category_id": "00754",
+    "parent_category_id": "",
+    "category_name": "Строительство, ремонт",
+    "sale_qty": 409664,
+    "sale_amount": 2437779808,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -66,
+    "restrict_type": 0
+  },
+  {
+    "category_id": "00791",
+    "parent_category_id": "",
+    "category_name": "Обувь",
+    "sale_qty": 152935,
+    "sale_amount": 1638939054,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -42,
+    "restrict_type": 0
+  },
+  {
+    "category_id": "00864",
+    "parent_category_id": "",
+    "category_name": "Спорт, туризм",
+    "sale_qty": 239651,
+    "sale_amount": 2774320563,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -64,
+    "restrict_type": 3
+  },
+  {
+    "category_id": "00933",
+    "parent_category_id": "",
+    "category_name": "Одежда",
+    "sale_qty": 721457,
+    "sale_amount": 3358286355,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -64,
+    "restrict_type": 0
+  },
+  {
+    "category_id": "01466",
+    "parent_category_id": "",
+    "category_name": "Товары для животных",
+    "sale_qty": 251491,
+    "sale_amount": 787957301,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -64,
+    "restrict_type": 4
+  },
+  {
+    "category_id": "01793",
+    "parent_category_id": "",
+    "category_name": "Продукты питания",
+    "sale_qty": 2366161,
+    "sale_amount": 2471887168,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -69,
+    "restrict_type": 3
+  },
+  {
+    "category_id": "02062",
+    "parent_category_id": "",
+    "category_name": "Канцелярские товары",
+    "sale_qty": 236101,
+    "sale_amount": 198338023,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -74,
+    "restrict_type": 0
+  },
+  {
+    "category_id": "02605",
+    "parent_category_id": "",
+    "category_name": "Подарки, товары для праздников",
+    "sale_qty": 180415,
+    "sale_amount": 363052257,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -90,
+    "restrict_type": 3
+  },
+  {
+    "category_id": "02807",
+    "parent_category_id": "",
+    "category_name": "Аптека",
+    "sale_qty": 774665,
+    "sale_amount": 2813551969,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -69,
+    "restrict_type": 3
+  },
+  {
+    "category_id": "06498",
+    "parent_category_id": "",
+    "category_name": "Украшения",
+    "sale_qty": 143154,
+    "sale_amount": 1011061350,
+    "is_has_subcategory": 1,
+    "amount_change_prc": -84,
+    "restrict_type": 4
+  }
+]
