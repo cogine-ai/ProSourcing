@@ -30,6 +30,10 @@ auth.json
 # Project specific
 output/
 tmp/
+scratch/
+chrome_user_data/
+logs/
+archive/
 MigrationPackage/
 *.tar
 *.png

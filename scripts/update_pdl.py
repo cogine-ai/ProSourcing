@@ -1,1 +1,0 @@
-import re; path = r" d:\item\ProSourcing\frontend_pro\src\App.jsx\; content = open(path, \r\, encoding=\utf-8\).read(); new_content = content.replace(\\, \rounded-2xl\).replace(\\, \rounded-xl\); open(path, \w\, encoding=\utf-8\).write(new_content)

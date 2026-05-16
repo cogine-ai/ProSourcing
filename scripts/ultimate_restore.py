@@ -1,0 +1,2 @@
+"import os\nimport json\nimport psycopg2\nfrom psycopg2.extras import RealDictCursor\nimport sys\n\n# 哥，设置输出编码为 UTF-8，防止 Windows 环境报错\nif sys.platform == \"win32\":\n    import io\n    sys.stdout = io.TextIOWrapper(sys.stdou
+<truncated 3240 bytes>

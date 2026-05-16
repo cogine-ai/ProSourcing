@@ -44,6 +44,9 @@ python run_dev.py
 - `api/`: Backend services (FastAPI)
 - `frontend_pro/`: Frontend application (Vite + React)
 - `core/`: Core business logic (Scraper, Pipeline, Scoring)
+- `scripts/`: Utility scripts and database migrations
+  - `sql/`: SQL schema and migration files
+- `archive/`: Legacy code and experimental backups (Git ignored)
 - `output/`: Unified output directory
   - `excel/`: Final analysis reports (.xlsx)
   - `json/`: Raw crawled data (.json)
@@ -86,6 +89,9 @@ python run_dev.py
 - `api/`: 后端服务代码 (FastAPI)
 - `frontend_pro/`: 前端项目代码 (Vite + React)
 - `core/`: 核心业务逻辑 (Scraper, Pipeline, Scoring)
+- `scripts/`: 工具脚本与数据库迁移文件
+  - `sql/`: SQL 结构与迁移脚本
+- `archive/`: 旧代码存档与实验性备份 (Git 忽略)
 - `output/`: 统一产出目录
   - `excel/`: 最终生成的分析报表 (.xlsx)
   - `json/`: 采集过程中的原始数据 (.json)
