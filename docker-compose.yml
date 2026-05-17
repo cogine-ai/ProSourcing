@@ -15,7 +15,7 @@ services:
     restart: always
 
   backend:
-    image: prosourcing-backend:v20260420
+    image: prosourcing-backend:20260517v1
     container_name: prosourcing_backend
     environment:
       - DATABASE_URL=postgresql://${PG_USER:-postgres}:${PG_PASSWORD:-prosourcing123}@db:5432/${PG_DB:-prosourcing}

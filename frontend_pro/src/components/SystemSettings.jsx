@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { PDL } from '../lib/pdl';
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = window.location.origin;
 
 // --- 子页面：用户管理 ---
 const UserManagement = () => {

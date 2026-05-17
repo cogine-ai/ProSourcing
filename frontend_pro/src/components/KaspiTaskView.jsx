@@ -3,7 +3,7 @@ import { useTaskStore } from '../store/useTaskStore';
 import { Loader2, PlusCircle, CheckCircle2, ChevronRight, Play, Trash2, X } from 'lucide-react';
 import { PDL } from '../lib/pdl';
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = window.location.origin;
 
 function TreeNode({ node, level = 0 }) {
     const { selectedLeafIds, addLeaf, removeLeaf } = useTaskStore();
@@ -143,13 +143,14 @@ export function KaspiTaskView() {
             });
             const data = await res.json();
             if (data.success) {
-                alert(`已成功分发 ${data.count} 条 Kaspi 官方分类子节点采集任务！`);
+                alert(data.message || `已成功分发 ${data.count} 条任务！`);
                 clearAll();
             } else {
-                alert("创建失败: " + data.message);
+                alert("创建失败: " + (data.message || "未知错误"));
             }
         } catch (err) {
             console.error(err);
+            alert("网络请求失败，请检查后端服务是否正常运行");
         } finally {
             setSubmitting(false);
         }

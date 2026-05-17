@@ -1,12 +1,15 @@
 import { PDL } from '../lib/pdl';
 
-export default function CategoryCard({ cat }) {
+export default function CategoryCard({ cat, onClick }) {
     const ratio = ((cat.sale_product_qty > 0 ? cat.monthly_sales / cat.sale_product_qty : 0)).toFixed(2);
     const ruName = cat?.name_ru || (cat?.category_name?.match(/^(.*)\s\(.*\)$/) || [null, cat?.category_name])[1] || cat?.name || "";
     const zhName = cat?.name_cn || (cat?.category_name?.match(/\s\((.*)\)$/) || [null, ""])[1] || "";
 
     return (
-        <div className={`bg-card border border-border ${PDL.radius.card} rounded-card-force p-8 hover:border-primary/50 transition-all shadow-md flex flex-col justify-between group h-[320px]`}>
+        <div 
+            onClick={onClick}
+            className={`bg-card border border-border ${PDL.radius.card} rounded-card-force p-8 hover:border-primary/50 transition-all shadow-md flex flex-col justify-between group h-[320px] cursor-pointer active:scale-[0.98]`}
+        >
             <div className="mb-8">
                 <h3 className="text-2xl font-black leading-tight text-foreground group-hover:text-primary transition-colors flex flex-col gap-1">
                     <span>{zhName || ruName}</span>

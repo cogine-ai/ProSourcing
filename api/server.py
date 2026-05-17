@@ -74,6 +74,26 @@ def _start_top_category_stats_refresh():
     return True
 
 
+def _get_task_valid_product_count(task):
+    stats = task.get("category_stats") or {}
+    if isinstance(stats, str):
+        try:
+            stats = json.loads(stats)
+        except json.JSONDecodeError:
+            stats = {}
+
+    for key in ("valid_product_count", "valid_product_qty"):
+        value = stats.get(key)
+        if value is None:
+            continue
+        try:
+            return int(float(str(value).replace(",", "").strip() or 0))
+        except (TypeError, ValueError):
+            continue
+
+    return 0
+
+
 def _normalize_category_code(category_id):
     raw = str(category_id or "").strip()
     if not raw:
@@ -451,7 +471,7 @@ def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
     return task
 
 @app.get("/api/tasks/history")
-def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None, days: Optional[int] = None, status: Optional[List[str]] = Query(None), top_category: Optional[str] = None):
+def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None, days: Optional[int] = None, status: Optional[List[str]] = Query(None), top_category: Optional[str] = None, hide_zero: bool = False):
     """获取历史任务记录，支持物理分页和搜索/时间筛选"""
     from core.final_pipeline import supabase as sb
     offset = (page - 1) * page_size
@@ -480,6 +500,29 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
         query = query.contains("up_categories", [{"category_name": top_category}])
     
     # 1. 获取满足条件的精确总数
+    if hide_zero:
+        filtered = []
+        fetch_offset = 0
+        batch_size = 1000
+        while True:
+            all_res = query.select("*").order("created_at", desc=True).range(fetch_offset, fetch_offset + batch_size - 1).execute()
+            batch = all_res.data or []
+            for t in batch:
+                if _get_task_valid_product_count(t) <= 0:
+                    continue
+                if not t.get('duration') and t['status'] == 'completed':
+                    try:
+                        t['duration'] = calculate_duration_from_logs(t['id'])
+                    except: t['duration'] = "--"
+                _enrich_task_metadata(t)
+                filtered.append(t)
+            if len(batch) < batch_size:
+                break
+            fetch_offset += batch_size
+
+        total = len(filtered)
+        return {"data": filtered[offset:offset + page_size], "total": total, "page": page, "page_size": page_size}
+
     count_res = query.select("*", count="exact").execute()
     total = count_res.count
     

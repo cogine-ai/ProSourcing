@@ -3,6 +3,21 @@ export const anyCyrillic = (str) => /[\u0400-\u04FF]/.test(str);
 const DEFAULT_LISTED_DAYS_FALLBACK = 999;
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
+const safeParseJsonString = (value, fallback) => {
+    if (typeof value !== 'string') return fallback;
+
+    const text = value.trim();
+    if (!text || (text[0] !== '{' && text[0] !== '[')) {
+        return fallback;
+    }
+
+    try {
+        return JSON.parse(text);
+    } catch {
+        return fallback;
+    }
+};
+
 const forceIntFallback = (value) => {
     if (value === null || value === undefined || value === '') return 0;
     const numeric = Number(value);
@@ -117,12 +132,8 @@ export const getTopCategoryZhLabel = (task, categories = [], categoryLookup = ne
         ? task.up_categories
         : (typeof task?.up_categories === 'string'
             ? (() => {
-                try {
-                    const parsed = JSON.parse(task.up_categories);
-                    return Array.isArray(parsed) ? parsed : [];
-                } catch {
-                    return [];
-                }
+                const parsed = safeParseJsonString(task.up_categories, []);
+                return Array.isArray(parsed) ? parsed : [];
             })()
             : []);
 
@@ -261,7 +272,9 @@ export const parsePreviewImage = (previewImageList, size = 'medium') => {
     if (!previewImageList) return '';
 
     try {
-        const parsed = typeof previewImageList === 'string' ? JSON.parse(previewImageList) : previewImageList;
+        const parsed = typeof previewImageList === 'string'
+            ? safeParseJsonString(previewImageList, null)
+            : previewImageList;
         const item = Array.isArray(parsed) ? parsed[0] : parsed;
         return item?.[size] || item?.medium || '';
     } catch {
