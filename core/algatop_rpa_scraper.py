@@ -8,7 +8,8 @@ import random
 import time
 import math
 import traceback
-from urllib.parse import quote
+import socket
+from urllib.parse import quote, urlparse, urlunparse
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from dotenv import load_dotenv
@@ -65,8 +66,13 @@ class AlgatopRPAScraper:
                     info = resp.json()
                     raw_ws = info.get("webSocketDebuggerUrl")
                     if raw_ws:
-                        # 把 127.0.0.1 替换回 host.docker.internal
-                        ws_url = raw_ws.replace("127.0.0.1", "host.docker.internal")
+                        # Chrome rejects non-IP Host headers during CDP WebSocket upgrade.
+                        parsed_ws = urlparse(raw_ws)
+                        parsed_remote = urlparse(self.remote_addr)
+                        debug_host = parsed_remote.hostname or "host.docker.internal"
+                        debug_port = parsed_remote.port or 9222
+                        ws_host = socket.gethostbyname(debug_host)
+                        ws_url = urlunparse(parsed_ws._replace(netloc=f"{ws_host}:{debug_port}"))
                         print(f"[GOD MODE] 成功获取 WebSocket 地址: {ws_url}")
                 else:
                     print(f"[GOD MODE] ⚠️ 收到异常响应! Server: {resp.headers.get('Server', 'Unknown')}, Content: {resp.text[:200]}")
@@ -78,24 +84,7 @@ class AlgatopRPAScraper:
             self.browser = await self.pw.chromium.connect_over_cdp(ws_url)
             self.context = self.browser.contexts[0]
             
-            # --- 激进清理标签页 (CodeRabbit 建议) ---
-            try:
-                pages = self.context.pages
-                if len(pages) > 2:
-                    print(f"[CLEANUP] 当前共有 {len(pages)} 个标签页，激进清理中 (仅保留 1 个)...")
-                    # 循环关闭所有老的标签页，只保留当前这一个或者新开一个
-                    for p in pages:
-                        try:
-                            p_url = p.url
-                            # 如果不是空白页且不是当前操作页，就干掉
-                            if "about:blank" not in p_url:
-                                print(f"  [CLOSE] 正在关闭残留页面: {p_url[:50]}...")
-                                await p.close()
-                        except: pass
-            except Exception as ce:
-                print(f"[CLEANUP ERROR] 无法清理残留页面: {ce}")
-                import traceback
-                traceback.print_exc()
+            # --- 已移除激进清理逻辑，防止多任务互相干扰 ---
 
             # 创建一个新页面，而不是复用可能不稳定的第一个页面
             self.page = await self.context.new_page()

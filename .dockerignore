@@ -1,6 +1,8 @@
 # Docker Ignore File
 node_modules
+**/node_modules
 dist
+**/dist
 .git
 .gitignore
 Dockerfile*
@@ -8,18 +10,32 @@ docker-compose.yml
 *.log
 *.tar
 *.tar.gz
+*.zip
 *.tmp-*
 *.ps1
-*.json
-!package.json
-!package-lock.json
+
+# Python Caches
+__pycache__
+**/__pycache__
+.pytest_cache
+.venv
+venv
+env
 
 # Explicitly ignore local storage and caches
 deployment_package/
 prosourcing_images/
 output/
 tmp/
+logs/
 chrome_user_data/
-frontend_pro/node_modules
-frontend_pro/dist
-frontend_pro/.vite
+
+# Frontend (Backend doesn't need frontend source)
+frontend/
+frontend_pro/
+
+# Others
+.env
+.github
+AGENT.md
+README.md

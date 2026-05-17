@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './index.css';
 import { PDL } from './lib/pdl';
 import { TASK_STATUS } from './constants';
@@ -14,6 +14,7 @@ import {
     buildReportPagination,
     getCategoryDisplayName,
     getTopCategoryZhLabel,
+    parsePreviewImage,
 } from './components/reports/reportUtils';
 import {
     LayoutDashboard,
@@ -41,7 +42,9 @@ import {
     Moon
 } from 'lucide-react';
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+    ? (window.location.port === '8000' ? window.location.origin : `${window.location.protocol}//${window.location.hostname}:8000`)
+    : window.location.origin;
 const App = () => {
     const [taskProducts, setTaskProducts] = useState([]);
     const [activeTab, setActiveTab] = useState('archives'); // Default to archives for now
@@ -59,6 +62,8 @@ const App = () => {
     const [filterReviews, setFilterReviews] = useState(15);
     const [filterMinPrice, setFilterMinPrice] = useState(800);
     const [sortBy, setSortBy] = useState('amount');
+    const [hideZeroSales, setHideZeroSales] = useState(false);
+    const [hideZeroValid, setHideZeroValid] = useState(false);
     const reportPageSize = 20;
     const totalReportPages = Math.max(1, Math.ceil(totalTasks / reportPageSize));
     const reportPaginationItems = buildReportPagination(reportPage, totalReportPages);
@@ -99,6 +104,7 @@ const App = () => {
     const [reportTab, setReportTab] = useState('metrics');
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
     const [algoConfig, setAlgoConfig] = useState(null); // 算法配置状态
+    const [isRefreshingTopStats, setIsRefreshingTopStats] = useState(false);
 
     useEffect(() => {
         setCategoryNameLookup(buildCategoryNameLookup(allCategories));
@@ -204,7 +210,11 @@ const App = () => {
     // --- 趋势数据获取 ---
     useEffect(() => {
         const fetchTrendData = async () => {
-            if (selectedTask.trend_data && selectedTask.trend_data.length > 0) {
+            if (!selectedTask?.id) {
+                return;
+            }
+
+            if (selectedTask?.trend_data && selectedTask.trend_data.length > 0) {
                 console.log("Trend data already exists in task", selectedTask.trend_data.length);
                 return;
             }
@@ -213,8 +223,8 @@ const App = () => {
             try {
                 const res = await fetch(`${API_BASE}/api/tasks/${selectedTask.id}`);
                 const data = await res.json();
-                if (data.trend_data && data.trend_data.length > 0) {
-                    setSelectedTask(prev => ({ ...prev, trend_data: data.trend_data }));
+                if (data?.trend_data && data.trend_data.length > 0) {
+                    setSelectedTask(prev => (prev ? { ...prev, trend_data: data.trend_data } : prev));
                     return;
                 }
             } catch (err) {
@@ -229,12 +239,12 @@ const App = () => {
     useEffect(() => {
         fetchTopStats();
         fetchGlobalStats();
-        fetchHistory(reportPage, reportSearch, reportTime, reportStatus, reportTopCat);
+        fetchHistory(reportPage, reportSearch, reportTime, reportStatus, reportTopCat, hideZeroValid);
         fetchAllCategories();
-        const interval = setInterval(() => fetchHistory(reportPage, reportSearch, reportTime, reportStatus, reportTopCat), 5000);
+        const interval = setInterval(() => fetchHistory(reportPage, reportSearch, reportTime, reportStatus, reportTopCat, hideZeroValid), 5000);
         fetchAlgoConfig();
         return () => clearInterval(interval);
-    }, [reportPage, reportSearch, reportTime, reportStatus, reportTopCat]);
+    }, [reportPage, reportSearch, reportTime, reportStatus, reportTopCat, hideZeroValid]);
 
     useEffect(() => {
         if (reportPage > totalReportPages) {
@@ -297,6 +307,30 @@ const App = () => {
         } catch (err) { console.error("Fetch top stats failed", err); }
     };
 
+    const handleRefreshTopStats = async () => {
+        const confirmed = window.confirm("获取更新21大类数据");
+        if (!confirmed) return;
+
+        setIsRefreshingTopStats(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/categories/top_stats/refresh`, {
+                method: 'POST',
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.detail || data.message || '启动更新失败');
+            }
+
+            alert(data.message || '已开始后台获取更新21大类数据');
+            fetchTopStats();
+            fetchGlobalStats();
+        } catch (err) {
+            alert(err.message || '启动更新失败，请稍后重试');
+        } finally {
+            setIsRefreshingTopStats(false);
+        }
+    };
+
     const fetchAllCategories = async () => {
         try {
             const res = await fetch(`${API_BASE}/api/categories/tree`);
@@ -305,7 +339,7 @@ const App = () => {
         } catch (err) { console.error("Fetch all categories failed", err); }
     };
 
-    const fetchHistory = async (page = reportPage, q = reportSearch, time = reportTime, status = reportStatus, topCat = reportTopCat) => {
+    const fetchHistory = async (page = reportPage, q = reportSearch, time = reportTime, status = reportStatus, topCat = reportTopCat, hideZero = hideZeroValid) => {
         try {
             const url = new URL(`${API_BASE}/api/tasks/history`);
             url.searchParams.append('page', page);
@@ -334,6 +368,7 @@ const App = () => {
                 }
             }
             if (topCat !== 'all') url.searchParams.append('top_category', topCat);
+            if (hideZero) url.searchParams.append('hide_zero', 'true');
             
             const res = await fetch(url);
             const data = await res.json();
@@ -377,21 +412,29 @@ const App = () => {
     };
 
 
-    const handleCreateTask = async (categoryName) => {
+    const handleCreateTask = async (cat) => {
         try {
+            const categoryId = cat.category_id || cat.id || cat;
             const res = await fetch(`${API_BASE}/api/tasks/category`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    category: categoryName,
-                    top_category_id: categoryName,
+                    category: String(categoryId),
+                    top_category_id: cat.top_category_id || String(categoryId),
                 })
             });
             if (res.ok) {
-                alert("任务已下发，正在后台执行");
+                const data = await res.json();
+                alert(data.status === 'completed' ? `检测到15天内已采集过该类目，已为你关联历史报告。` : "任务已下发，正在后台执行");
                 fetchHistory();
+            } else {
+                const errorData = await res.json().catch(() => ({}));
+                alert(`启动失败: ${errorData.detail || errorData.message || '服务器内部错误'}`);
             }
-        } catch (error) { console.error("Create task failed", error); }
+        } catch (error) { 
+            console.error("Create task failed", error); 
+            alert("网络连接失败，请检查后端 API 是否在线");
+        }
     };
     
     const handleRetryTask = async (taskId) => {
@@ -400,8 +443,13 @@ const App = () => {
             if (res.ok) {
                 alert('任务已重新加入采集队列！');
                 fetchHistory();
+            } else {
+                alert('重试失败，请检查任务状态');
             }
-        } catch (e) { console.error("Retry task failed", e); }
+        } catch (e) { 
+            console.error("Retry task failed", e); 
+            alert("请求失败，请稍后重试");
+        }
     };
 
     const handleToggleLeaf = (leafId) => {
@@ -616,6 +664,20 @@ const App = () => {
                                             <option value="all">全部分类</option>
                                             {categories.map(c => <option key={c.category_id} value={c.name_cn || c.category_name || c.name_ru}>{c.name_cn || c.name_ru}</option>)}
                                         </select>
+                                        <div className="flex items-center gap-3 px-4 border-l border-border/40">
+                                            <div 
+                                                onClick={() => {
+                                                    const next = !hideZeroValid;
+                                                    setHideZeroValid(next);
+                                                    setReportPage(1);
+                                                    fetchHistory(1, reportSearch, reportTime, reportStatus, reportTopCat, next);
+                                                }}
+                                                className={`w-10 h-5 rounded-full relative transition-all cursor-pointer ${hideZeroValid ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+                                            >
+                                                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${hideZeroValid ? 'left-[22px]' : 'left-0.5'}`} />
+                                            </div>
+                                            <span className="text-[10px] font-black text-foreground/80 whitespace-nowrap uppercase tracking-widest">隐藏0有效数</span>
+                                        </div>
                                     </div>
                                 ) : null}
                             />
@@ -632,17 +694,28 @@ const App = () => {
                                 </div>
 
                                 <div className={PDL.spacing.section}>
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between gap-4">
                                         <h3 className="text-xl font-black text-foreground tracking-tight flex items-center gap-3">
                                             <div className="w-1 h-6 bg-primary rounded-full"></div>
                                             全量一级分类运行详情
                                         </h3>
-                                        <div className="text-[10px] font-bold text-muted-foreground uppercase bg-muted/20 px-3 py-1 rounded-full border border-border">
-                                            最后更新 {formatDateTime(globalStats.last_updated)}
+                                        <div className="flex items-center gap-2">
+                                            <div className="text-[10px] font-bold text-muted-foreground uppercase bg-muted/20 px-3 py-1 rounded-full border border-border">
+                                                最后更新 {formatDateTime(globalStats.last_updated)}
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleRefreshTopStats}
+                                                disabled={isRefreshingTopStats}
+                                                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card/80 text-muted-foreground transition-all hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                                                title="获取更新21大类数据"
+                                            >
+                                                <RefreshCw size={14} className={isRefreshingTopStats ? 'animate-spin' : ''} />
+                                            </button>
                                         </div>
                                     </div>
                                     <div className={`grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 ${PDL.spacing.gap}`}>
-                                        {categories.map((cat, i) => <CategoryCard key={i} cat={cat} />)}
+                                        {categories.map((cat, i) => <CategoryCard key={i} cat={cat} onClick={() => handleCreateTask(cat)} />)}
                                     </div>
                                 </div>
                             </div>
@@ -664,14 +737,21 @@ const App = () => {
                                             ref={reportListRef}
                                             className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-8 pb-10"
                                         >
-                                        {tasks.length === 0 ? (
-                                            <div className="flex flex-col items-center justify-center py-20 opacity-30 grayscale gap-4">
-                                                <History size={48} />
-                                                <p className="font-black uppercase tracking-widest text-sm">暂无选品报告 // NO DATA</p>
-                                            </div>
-                                        ) : (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                                                {tasks.map((task) => {
+                                        {(() => {
+                                            const filteredTasks = tasks; // 哥，现在后端帮咱们过滤好了，直接用
+                                            
+                                            if (filteredTasks.length === 0) {
+                                                return (
+                                                    <div className="flex flex-col items-center justify-center py-20 opacity-30 grayscale gap-4">
+                                                        <History size={48} />
+                                                        <p className="font-black uppercase tracking-widest text-sm">暂无选品报告 // NO DATA</p>
+                                                    </div>
+                                                );
+                                            }
+
+                                            return (
+                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                                    {filteredTasks.map((task) => {
                                                         const isCompleted = task.status === TASK_STATUS.COMPLETED;
                                                         const isFailed = task.status === TASK_STATUS.FAILED;
                                                         const isRunning = !isCompleted && !isFailed && task.status !== TASK_STATUS.RETRYING;
@@ -799,8 +879,9 @@ const App = () => {
                                                             </div>
                                                         );
                                                     })}
-                                            </div>
-                                        )}
+                                                </div>
+                                            );
+                                        })()}
 
                                         </div>
 
@@ -928,7 +1009,7 @@ const App = () => {
 
                                                             {/* --- 左侧栏：商品详情列表（2/3 宽度） --- */}
                                                             <div className="lg:col-span-2 space-y-4 max-h-[calc(100vh-280px)] overflow-y-auto pr-2 custom-scrollbar pb-6">
-                                                                {/* 与 raw tab 保持一致的筛选与排序工具条 */}
+                                                                {/* 哥，详情页只保留潜力优质筛选 */}
                                                                 <div className="bg-muted/10 border border-border/40 rounded-xl p-3 mb-6 flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-500">
                                                                     <div className="flex items-center gap-6">
                                                                         <div className="flex items-center gap-3 pr-4 border-r border-border/40">
@@ -940,7 +1021,7 @@ const App = () => {
                                                                             </div>
                                                                             <span className="text-xs font-black text-foreground/80 whitespace-nowrap">潜力优质商品筛选</span>
                                                                         </div>
-                                                                        
+
                                                                         <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">
                                                                             <div className="flex items-center gap-2">
                                                                                 <span>天数 &lt;</span>
@@ -973,8 +1054,9 @@ const App = () => {
                                                                         </div>
                                                                         <div className="text-[10px] font-bold text-muted-foreground/40 whitespace-nowrap border-l border-border/40 pl-6 uppercase tracking-tighter">
                                                                             共计 <span className="text-primary">{taskProducts.filter(tp => {
+                                                                                const raw = tp.products_raw_data || {};
+                                                                                if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                                 if (!onlyHighQuality) return true;
-                                                                                const raw = tp.products_raw_data;
                                                                                 const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                                 return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
                                                                             }).length}</span> 个商品 / 总数 {taskProducts.length}
@@ -987,8 +1069,9 @@ const App = () => {
                                                                 ) : (
                                                                     taskProducts
                                                                         .filter(tp => {
+                                                                            const raw = tp.products_raw_data || {};
+                                                                            if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                             if (!onlyHighQuality) return true;
-                                                                            const raw = tp.products_raw_data;
                                                                             const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                             return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
                                                                         })
@@ -1004,7 +1087,7 @@ const App = () => {
                                                                             }
                                                                             // Default: score
                                                                             const getScore = (tp) => {
-                                                                                const raw = tp.products_raw_data;
+                                                                                const raw = tp.products_raw_data || {};
                                                                                 const ld = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                                 return getMetricScore('monthly_sales', raw.sale_qty || 0) +
                                                                                        getMetricScore('reviews', raw.review_qty || 0) +
@@ -1015,7 +1098,8 @@ const App = () => {
                                                                             return getScore(b) - getScore(a);
                                                                         })
                                                                         .map((tp, idx) => {
-                                                                        const raw = tp.products_raw_data;
+                                                                        const raw = tp.products_raw_data || {};
+                                                                        const mainImg = parsePreviewImage(raw.preview_image_list, 'medium');
 
                                                                         // Extract create date safely
                                                                         const createDateOnly = raw.created_dt ? raw.created_dt.substring(0, 10) : '--';
@@ -1026,7 +1110,7 @@ const App = () => {
                                                                             <div key={idx} className="flex gap-4 p-4 bg-card border border-border rounded-xl shadow-sm hover:border-primary/30 transition-all group items-center">
                                                                                 {/* 1. 左侧图片区（固定宽高） */}
                                                                                 <a href={raw.product_url} target="_blank" rel="noopener noreferrer" className="w-16 h-16 rounded-md bg-muted overflow-hidden shrink-0 border border-border flex items-center justify-center text-[10px] font-bold text-muted-foreground group-hover:border-primary/50 transition-colors">
-                                                                                    {raw.preview_image_list ? <img src={JSON.parse(raw.preview_image_list)[0].medium} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" /> : 'IMG'}
+                                                                                    {mainImg ? <img src={mainImg} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" /> : 'IMG'}
                                                                                 </a>
 
                                                                                 {/* 2. 中间商品名称及附加信息区 */}
@@ -1255,7 +1339,7 @@ const App = () => {
                                                                     </div>
                                                                     <span className="text-xs font-black text-foreground/80 whitespace-nowrap">潜力优质商品筛选</span>
                                                                 </div>
-                                                                
+
                                                                 <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">
                                                                     <div className="flex items-center gap-2">
                                                                         <span>天数 &lt;</span>
@@ -1290,8 +1374,9 @@ const App = () => {
                                                                 </div>
                                                                 <div className="text-[10px] font-bold text-muted-foreground/40 whitespace-nowrap border-l border-border/40 pl-6 uppercase tracking-tighter">
                                                                     共计 <span className="text-primary">{taskProducts.filter(tp => {
+                                                                        const raw = tp.products_raw_data || {};
+                                                                        if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                         if (!onlyHighQuality) return true;
-                                                                        const raw = tp.products_raw_data;
                                                                         const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                         return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
                                                                     }).length}</span> 个商品 / 总数 {taskProducts.length}
@@ -1318,8 +1403,9 @@ const App = () => {
                                                                 <tbody className="divide-y divide-border/20">
                                                                     {taskProducts
                                                                         .filter(tp => {
+                                                                            const raw = tp.products_raw_data || {};
+                                                                            if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                             if (!onlyHighQuality) return true;
-                                                                            const raw = tp.products_raw_data;
                                                                             const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                             return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
                                                                         })
@@ -1335,7 +1421,7 @@ const App = () => {
                                                                             }
                                                                             // Default: score (鍝ワ紝杩欓噷涔熺敤鍚屾牱鐨勮瘎鍒嗗嚱鏁?
                                                                             const getScore = (tp) => {
-                                                                                const raw = tp.products_raw_data;
+                                                                                const raw = tp.products_raw_data || {};
                                                                                 const ld = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                                 return getMetricScore('monthly_sales', raw.sale_qty || 0) +
                                                                                        getMetricScore('reviews', raw.review_qty || 0) +
@@ -1346,8 +1432,8 @@ const App = () => {
                                                                             return getScore(b) - getScore(a);
                                                                         })
                                                                         .map((tp, idx) => {
-                                                                        const raw = tp.products_raw_data;
-                                                                        const mainImg = raw.preview_image_list ? JSON.parse(raw.preview_image_list)[0]?.medium : "https://via.placeholder.com/150";
+                                                                        const raw = tp.products_raw_data || {};
+                                                                        const mainImg = parsePreviewImage(raw.preview_image_list, 'medium') || "https://via.placeholder.com/150";
 
                                                                         return (
                                                                             <tr key={idx} className="hover:bg-muted/5 transition-colors group">
