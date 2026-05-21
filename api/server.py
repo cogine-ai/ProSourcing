@@ -17,6 +17,12 @@ import json
 # 将项目根目录添加到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from api.task_helpers import (
+    category_code_variants as _category_code_variants,
+    get_task_valid_product_count as _get_task_valid_product_count,
+    normalize_category_code as _normalize_category_code,
+)
+
 # 环境检测
 is_docker = (
     os.path.exists('/.dockerenv') or 
@@ -72,46 +78,6 @@ def _start_top_category_stats_refresh():
         stderr=subprocess.STDOUT,
     )
     return True
-
-
-def _get_task_valid_product_count(task):
-    stats = task.get("category_stats") or {}
-    if isinstance(stats, str):
-        try:
-            stats = json.loads(stats)
-        except json.JSONDecodeError:
-            stats = {}
-
-    for key in ("valid_product_count", "valid_product_qty"):
-        value = stats.get(key)
-        if value is None:
-            continue
-        try:
-            return int(float(str(value).replace(",", "").strip() or 0))
-        except (TypeError, ValueError):
-            continue
-
-    return 0
-
-
-def _normalize_category_code(category_id):
-    raw = str(category_id or "").strip()
-    if not raw:
-        return ""
-    return raw.zfill(5) if raw.isdigit() else raw
-
-
-def _category_code_variants(category_id):
-    raw = str(category_id or "").strip()
-    if not raw:
-        return []
-
-    variants = []
-    for candidate in (raw, raw.zfill(5) if raw.isdigit() else raw, raw.lstrip("0") or "0"):
-        candidate = str(candidate).strip()
-        if candidate and candidate not in variants:
-            variants.append(candidate)
-    return variants
 
 
 def _sync_last_crawl_date(category_id, crawl_date=None):
