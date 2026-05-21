@@ -76,7 +76,15 @@ docker compose up -d frontend backend
 docker exec -it prosourcing_db psql -U postgres -d prosourcing
 ```
 
-### 5.2 执行加字段 SQL
+### 5.2 执行商品表联合主键迁移（2026-05-17 之后后端必需）
+
+若 RPA 报告阶段报错 `there is no unique or exclusion constraint matching the ON CONFLICT specification`，说明数据库仍是旧的 `sku` 单主键。请执行：
+
+```powershell
+Get-Content scripts/sql/migrate_products_sku_task_composite_pk.sql | docker exec -i prosourcing_db psql -U postgres -d prosourcing
+```
+
+### 5.3 执行加字段 SQL
 
 把 `scripts/sql/add_top_category_columns.sql` 内容粘贴进去执行：
 
@@ -90,7 +98,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_top_category_name_cn
     ON public.analysis_tasks(top_category_name_cn);
 ```
 
-### 5.3 回填历史任务一级分类
+### 5.4 回填历史任务一级分类
 
 把 `scripts/sql/backfill_task_top_category.sql` 内容粘贴进去执行：
 
@@ -143,7 +151,7 @@ WHERE t.id = top_level.task_id
   );
 ```
 
-### 5.4 退出数据库
+### 5.5 退出数据库
 
 ```sql
 \q
