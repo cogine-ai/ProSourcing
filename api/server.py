@@ -19,8 +19,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api.task_helpers import (
     category_code_variants as _category_code_variants,
+    expand_status_filters as _expand_status_filters,
     get_task_valid_product_count as _get_task_valid_product_count,
     normalize_category_code as _normalize_category_code,
+    parse_task_timestamp as _parse_task_timestamp,
 )
 
 # 环境检测
@@ -181,33 +183,6 @@ def _task_matches_top_category(task, top_category):
     return False
 
 
-RUNNING_TASK_STATUSES = {"pending", "scraping", "crawling", "reporting", "processing", "retrying"}
-
-
-def _expand_status_filters(status_filters):
-    if not status_filters:
-        return []
-
-    if isinstance(status_filters, str):
-        raw_filters = [status_filters]
-    else:
-        raw_filters = list(status_filters)
-
-    expanded = []
-    for item in raw_filters:
-        normalized = (item or "").strip().lower()
-        if not normalized or normalized == "all":
-            continue
-        if normalized == "pending":
-            for running_status in RUNNING_TASK_STATUSES:
-                if running_status not in expanded:
-                    expanded.append(running_status)
-            continue
-        if normalized not in expanded:
-            expanded.append(normalized)
-    return expanded
-
-
 @lru_cache(maxsize=1024)
 def _get_category_master_row(category_id: str):
     if not category_id or not str(category_id).isdigit():
@@ -308,33 +283,6 @@ def _enrich_task_metadata(task):
         task["category"] = leaf_name_cn
 
     return task
-
-
-def _parse_task_timestamp(value):
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    if raw.endswith("Z"):
-        raw = raw[:-1] + "+00:00"
-    try:
-        return datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-
-
-def _task_matches_days(task, days):
-    if not days or days <= 0:
-        return True
-    created_at = _parse_task_timestamp(task.get("created_at"))
-    if not created_at:
-        return False
-    return created_at >= (datetime.now(created_at.tzinfo) - timedelta(days=days))
-
-
-def _task_matches_status_filters(task, expanded_statuses):
-    if not expanded_statuses:
-        return True
-    return (task.get("status") or "").strip().lower() in expanded_statuses
 
 
 def _build_initial_up_categories(category_id: str):
