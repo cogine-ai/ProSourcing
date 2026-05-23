@@ -675,11 +675,6 @@ async def get_task_logs(task_id: str):
     except Exception as e:
         return {"logs": f"Error reading logs: {str(e)}"}
 
-def get_products():
-    from core.final_pipeline import supabase as sb
-    res = sb.table("products_calculated_metrics").select("*, products_raw_data(*)").order("total_score", desc=True).limit(50).execute()
-    return res.data
-
 @app.get("/", response_class=HTMLResponse)
 async def get_index():
     with open(os.path.join(os.path.dirname(__file__), "index.html"), "r", encoding="utf-8") as f:
@@ -932,21 +927,6 @@ def system_health():
         "timestamp": datetime.now().isoformat()
     }
 
-
-@app.get("/api/categories/search")
-async def search_categories(q: str):
-    """支持模糊检索类目名称 (还原)"""
-    from core.final_pipeline import supabase as sb
-    res = sb.table("categories").select("*").ilike("category_name", f"%{q}%").limit(100).execute()
-    return res.data
-
-@app.get("/api/categories/children/{parent_id}")
-async def get_child_categories(parent_id: str):
-    """获取指定父类目的所有直接子类目 (还原)"""
-    from core.final_pipeline import supabase as sb
-    res = sb.table("categories").select("*").eq("parent_category_id", parent_id).order("sale_product_qty", desc=True).execute()
-    return res.data
-
 @app.get("/api/categories/tree")
 def get_category_tree():
     """复用 top_stats 的逻辑以获取带计数的树根 - 线程模式"""
@@ -1009,10 +989,6 @@ def retry_task(task_id: str, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=404, detail="Task not found")
     t = res.data[0]
     
-    # 哥，针对防重试连点（幂等性）的增强：如果已经在队列或执行中，直接拦截
-    if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
-        return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
-
     # 哥，针对防重试连点（幂等性）的增强：如果已经在队列或执行中，直接拦截
     if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
         return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
