@@ -493,11 +493,7 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
 
     if top_category and top_category != 'all':
         query = query.eq("top_category_name_cn", top_category)
-        
-    if False and top_category and top_category != 'all':
-        # 通过 supabase jsonb 的包含查询过滤含有该大类名的节点
-        query = query.contains("up_categories", [{"category_name": top_category}])
-    
+
     # 1. 获取满足条件的精确总数
     if hide_zero:
         filtered = []
