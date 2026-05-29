@@ -89,6 +89,10 @@ def json_safe(obj):
         print(f"[WARN] json_safe: 字段不可序列化，已置 None: {e}")
         return None
 
+def _resolve_niche_category_id(niche_stats):
+    return niche_stats.get("category_id") or niche_stats.get("category_ext_id")
+
+
 def process_rpa_data(task_id=None, input_file=None):
     # 如果没传 input_file，则尝试拼接默认路径
     # 哥，这里一定要统一用相对路径，不然容器里找不着
@@ -162,7 +166,7 @@ def process_rpa_data(task_id=None, input_file=None):
         new_task_data = {
             "category": f"RPA采集_{niche_stats.get('category_name', '未知')}_{datetime.now().strftime('%m%d_%H%M')}",
             "status": "completed",
-            "category_id": niche_stats.get("category_id"),
+            "category_id": _resolve_niche_category_id(niche_stats),
             "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
             "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
             "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False)
@@ -348,7 +352,7 @@ def process_rpa_data(task_id=None, input_file=None):
                 
                 # 更新 Task 汇总信息
                 final_update = {
-                    "category_id": niche_stats.get("category_id"),
+                    "category_id": _resolve_niche_category_id(niche_stats),
                     "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
                     "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
                     "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False),
@@ -371,7 +375,7 @@ def process_rpa_data(task_id=None, input_file=None):
                     supabase.table("products_calculated_metrics").upsert(calc_chunk).execute()
                 
                 final_update = {
-                    "category_id": niche_stats.get("category_ext_id"),
+                    "category_id": _resolve_niche_category_id(niche_stats),
                     "category_stats": json_safe(niche_stats),
                     "trend_data": json_safe(trend),
                     "up_categories": json_safe(niche_stats.get("up_categories_json")),
@@ -381,6 +385,7 @@ def process_rpa_data(task_id=None, input_file=None):
                 print(f"[SUCCESS] Supabase 同步完成！")
         except Exception as e:
             print(f"[ERROR] 数据库同步失败: {e}")
+            raise
 
     # 3. 产生 Excel 报告
     processed_results.sort(key=lambda x: x['total_score'], reverse=True)
