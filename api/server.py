@@ -277,6 +277,18 @@ def _analysis_tasks_has_updated_at():
         return False
 
 
+def _coerce_category_stats(value):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
 def _resolve_task_up_categories(task):
     normalized_existing = _normalize_up_categories(task.get("up_categories"))
     has_cn_label = any(
@@ -290,10 +302,11 @@ def _resolve_task_up_categories(task):
     if normalized_existing and has_cn_label:
         return normalized_existing
 
+    category_stats = _coerce_category_stats(task.get("category_stats"))
     category_id = str(
         task.get("category_id")
-        or (task.get("category_stats") or {}).get("category_id")
-        or (task.get("category_stats") or {}).get("category_ext_id")
+        or category_stats.get("category_id")
+        or category_stats.get("category_ext_id")
         or ""
     ).strip()
     if not category_id.isdigit():
@@ -1449,7 +1462,7 @@ def get_kaspi_global_tree_v4():
             return []
 
         leaf_ids = {
-            _normalize_category_code(c.get("category_id"))
+            _normalize_category_code(c.get("algatop_id") or c.get("category_id"))
             for c in all_cats
             if c.get("is_leaf")
         }
