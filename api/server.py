@@ -17,6 +17,8 @@ import json
 # 将项目根目录添加到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from api.task_filters import expand_status_filters, get_task_valid_product_count
+
 # 环境检测
 is_docker = (
     os.path.exists('/.dockerenv') or 
@@ -72,26 +74,6 @@ def _start_top_category_stats_refresh():
         stderr=subprocess.STDOUT,
     )
     return True
-
-
-def _get_task_valid_product_count(task):
-    stats = task.get("category_stats") or {}
-    if isinstance(stats, str):
-        try:
-            stats = json.loads(stats)
-        except json.JSONDecodeError:
-            stats = {}
-
-    for key in ("valid_product_count", "valid_product_qty"):
-        value = stats.get(key)
-        if value is None:
-            continue
-        try:
-            return int(float(str(value).replace(",", "").strip() or 0))
-        except (TypeError, ValueError):
-            continue
-
-    return 0
 
 
 def _normalize_category_code(category_id):
@@ -213,33 +195,6 @@ def _task_matches_top_category(task, top_category):
             return True
 
     return False
-
-
-RUNNING_TASK_STATUSES = {"pending", "scraping", "crawling", "reporting", "processing", "retrying"}
-
-
-def _expand_status_filters(status_filters):
-    if not status_filters:
-        return []
-
-    if isinstance(status_filters, str):
-        raw_filters = [status_filters]
-    else:
-        raw_filters = list(status_filters)
-
-    expanded = []
-    for item in raw_filters:
-        normalized = (item or "").strip().lower()
-        if not normalized or normalized == "all":
-            continue
-        if normalized == "pending":
-            for running_status in RUNNING_TASK_STATUSES:
-                if running_status not in expanded:
-                    expanded.append(running_status)
-            continue
-        if normalized not in expanded:
-            expanded.append(normalized)
-    return expanded
 
 
 @lru_cache(maxsize=1024)
@@ -486,7 +441,7 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
         # 兼容 ISO 格式
         query = query.gte("created_at", after.isoformat())
         
-    expanded_statuses = _expand_status_filters(status)
+    expanded_statuses = expand_status_filters(status)
     if len(expanded_statuses) == 1:
         query = query.eq("status", expanded_statuses[0])
     elif len(expanded_statuses) > 1:
@@ -508,7 +463,7 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
             all_res = query.select("*").order("created_at", desc=True).range(fetch_offset, fetch_offset + batch_size - 1).execute()
             batch = all_res.data or []
             for t in batch:
-                if _get_task_valid_product_count(t) <= 0:
+                if get_task_valid_product_count(t) <= 0:
                     continue
                 if not t.get('duration') and t['status'] == 'completed':
                     try:
