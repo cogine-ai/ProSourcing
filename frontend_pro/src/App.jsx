@@ -86,11 +86,6 @@ const App = () => {
             return iso;
         }
     };
-    // Original activeTab initialization logic, now commented out or replaced by the above line
-    // const [activeTab, setActiveTab] = useState(() => {
-    //     const hash = window.location.hash.replace('#', '');
-    //     return ['market', 'tasks', 'archives', 'algo', 'settings'].includes(hash) ? hash : 'market';
-    // });
     const [isDark, setIsDark] = useState(true);
     const [categories, setCategories] = useState([]);
     const [allCategories, setAllCategories] = useState([]);
