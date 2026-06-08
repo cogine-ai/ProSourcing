@@ -199,23 +199,6 @@ export const getTaskDurationLabel = (task) => {
     return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 };
 
-export const isHighQualityProduct = (raw, filters, forceNum) => {
-    if (!raw) return false;
-
-    const listedDays = getListedDays(raw?.created_dt);
-    return listedDays <= forceNum(filters?.filterDays ?? 0)
-        && forceNum(raw?.sale_qty ?? 0) >= forceNum(filters?.filterSales ?? 0)
-        && forceNum(raw?.review_qty ?? 0) >= forceNum(filters?.filterReviews ?? 0)
-        && forceNum(raw?.sale_price ?? 0) >= forceNum(filters?.filterMinPrice ?? 0);
-};
-
-export const filterTaskProducts = (taskProducts, onlyHighQuality, filters, forceNum) => (
-    taskProducts.filter((tp) => {
-        if (!onlyHighQuality) return true;
-        return isHighQualityProduct(tp?.products_raw_data, filters, forceNum);
-    })
-);
-
 export const getAverageSalesPerProduct = (selectedTask) => {
     const saleQty = forceIntFallback(selectedTask?.category_stats?.sale_qty);
     const productQty = forceIntFallback(selectedTask?.category_stats?.sale_product_qty);
