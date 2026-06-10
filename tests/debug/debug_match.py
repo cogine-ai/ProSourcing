@@ -14,7 +14,7 @@ tops = res.data
 all_cats = []
 page_size = 1000
 for i in range(10): 
-    r = sb.table("categories").select("category_id, category_name, parent_category_id, is_has_subcategory").range(i * page_size, (i + 1) * page_size - 1).execute()
+    r = sb.table("categories").select("category_id, category_name, parent_category_id, is_leaf").range(i * page_size, (i + 1) * page_size - 1).execute()
     all_cats.extend(r.data)
     if len(r.data) < page_size: break
 

@@ -28,7 +28,7 @@ def get_all_leaves(p_id):
     leaves = []
     children = p_map.get(p_id, [])
     for child in children:
-        if child.get("is_has_subcategory") == 0:
+        if child.get("is_leaf"):
             leaves.append(child)
         else:
             leaves.extend(get_all_leaves(child["category_id"]))

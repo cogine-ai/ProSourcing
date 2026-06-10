@@ -62,7 +62,6 @@ const App = () => {
     const [filterReviews, setFilterReviews] = useState(15);
     const [filterMinPrice, setFilterMinPrice] = useState(800);
     const [sortBy, setSortBy] = useState('amount');
-    const [hideZeroSales, setHideZeroSales] = useState(false);
     const [hideZeroValid, setHideZeroValid] = useState(false);
     const reportPageSize = 20;
     const totalReportPages = Math.max(1, Math.ceil(totalTasks / reportPageSize));
@@ -86,11 +85,6 @@ const App = () => {
             return iso;
         }
     };
-    // Original activeTab initialization logic, now commented out or replaced by the above line
-    // const [activeTab, setActiveTab] = useState(() => {
-    //     const hash = window.location.hash.replace('#', '');
-    //     return ['market', 'tasks', 'archives', 'algo', 'settings'].includes(hash) ? hash : 'market';
-    // });
     const [isDark, setIsDark] = useState(true);
     const [categories, setCategories] = useState([]);
     const [allCategories, setAllCategories] = useState([]);
@@ -148,14 +142,6 @@ const App = () => {
         min_cat_count: 1248,
         sku_count: "154.2K",
     });
-
-    const tabs = [
-        { id: 'market', label: '首页', description: '全量大盘数据概览', icon: <LayoutDashboard size={18} /> },
-        { id: 'tasks', label: '采集任务', description: '分类树采集任务管理', icon: <Target size={18} /> },
-        { id: 'archives', label: '选品报告', description: '查看 AI 生成的选品分析结果', icon: <History size={18} /> },
-        { id: 'algo', label: '算法配置', description: '评分维度与权重管理', icon: <Settings2 size={18} /> },
-        { id: 'settings', label: '系统管理', description: '账号、权限与系统配置', icon: <Users size={18} /> },
-    ];
 
     const tabsCN = [
         { id: 'market', label: '首页', description: '全量大盘数据概览', icon: <LayoutDashboard size={18} /> },
@@ -1055,7 +1041,6 @@ const App = () => {
                                                                         <div className="text-[10px] font-bold text-muted-foreground/40 whitespace-nowrap border-l border-border/40 pl-6 uppercase tracking-tighter">
                                                                             共计 <span className="text-primary">{taskProducts.filter(tp => {
                                                                                 const raw = tp.products_raw_data || {};
-                                                                                if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                                 if (!onlyHighQuality) return true;
                                                                                 const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                                 return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
@@ -1070,7 +1055,6 @@ const App = () => {
                                                                     taskProducts
                                                                         .filter(tp => {
                                                                             const raw = tp.products_raw_data || {};
-                                                                            if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                             if (!onlyHighQuality) return true;
                                                                             const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                             return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
@@ -1375,7 +1359,6 @@ const App = () => {
                                                                 <div className="text-[10px] font-bold text-muted-foreground/40 whitespace-nowrap border-l border-border/40 pl-6 uppercase tracking-tighter">
                                                                     共计 <span className="text-primary">{taskProducts.filter(tp => {
                                                                         const raw = tp.products_raw_data || {};
-                                                                        if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                         if (!onlyHighQuality) return true;
                                                                         const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                         return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
@@ -1404,7 +1387,6 @@ const App = () => {
                                                                     {taskProducts
                                                                         .filter(tp => {
                                                                             const raw = tp.products_raw_data || {};
-                                                                            if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                             if (!onlyHighQuality) return true;
                                                                             const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                             return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
