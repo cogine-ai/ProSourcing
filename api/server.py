@@ -24,6 +24,7 @@ is_docker = (
     os.getenv("ENV_MOD") == "production"
 )
 
+from api.task_filters import get_task_valid_product_count as _get_task_valid_product_count
 from core.final_pipeline import run_scoring_and_export
 from core.scoring import ScoringEngine, DEFAULT_CONFIG
 # from deep_translator import GoogleTranslator
@@ -72,26 +73,6 @@ def _start_top_category_stats_refresh():
         stderr=subprocess.STDOUT,
     )
     return True
-
-
-def _get_task_valid_product_count(task):
-    stats = task.get("category_stats") or {}
-    if isinstance(stats, str):
-        try:
-            stats = json.loads(stats)
-        except json.JSONDecodeError:
-            stats = {}
-
-    for key in ("valid_product_count", "valid_product_qty"):
-        value = stats.get(key)
-        if value is None:
-            continue
-        try:
-            return int(float(str(value).replace(",", "").strip() or 0))
-        except (TypeError, ValueError):
-            continue
-
-    return 0
 
 
 def _normalize_category_code(category_id):
