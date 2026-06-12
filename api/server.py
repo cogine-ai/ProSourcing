@@ -149,32 +149,6 @@ def _sync_last_crawl_date(category_id, crawl_date=None):
     return updated
 
 
-def _extract_category_aliases(category_value):
-    aliases = set()
-    if category_value is None:
-        return aliases
-
-    if isinstance(category_value, str):
-        value = category_value.strip()
-        if not value:
-            return aliases
-        aliases.add(value)
-        if " (" in value and value.endswith(")"):
-            main_part, _, tail = value.partition(" (")
-            aliases.add(main_part.strip())
-            aliases.add(tail[:-1].strip())
-        return {alias for alias in aliases if alias}
-
-    if isinstance(category_value, dict):
-        for key in ("category_name", "name_ru", "name_cn", "category_cn", "name"):
-            value = category_value.get(key)
-            if isinstance(value, str) and value.strip():
-                aliases.update(_extract_category_aliases(value))
-        return aliases
-
-    return aliases
-
-
 def _contains_chinese(text):
     return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
 
@@ -200,19 +174,6 @@ def _normalize_up_categories(up_categories):
         return up_categories
 
     return [up_categories]
-
-
-def _task_matches_top_category(task, top_category):
-    target_aliases = _extract_category_aliases(top_category)
-    if not target_aliases:
-        return True
-
-    task_path = _normalize_up_categories(task.get("up_categories")) or _resolve_task_up_categories(task)
-    for item in task_path:
-        if _extract_category_aliases(item) & target_aliases:
-            return True
-
-    return False
 
 
 RUNNING_TASK_STATUSES = {"pending", "scraping", "crawling", "reporting", "processing", "retrying"}
@@ -257,24 +218,6 @@ def _get_category_master_row(category_id: str):
         .execute()
     )
     return res.data[0] if res.data else None
-
-
-@lru_cache(maxsize=1)
-def _analysis_tasks_has_updated_at():
-    from core.final_pipeline import supabase as sb
-
-    try:
-        res = (
-            sb.table("information_schema.columns")
-            .select("column_name")
-            .eq("table_name", "analysis_tasks")
-            .eq("column_name", "updated_at")
-            .limit(1)
-            .execute()
-        )
-        return bool(res.data)
-    except Exception:
-        return False
 
 
 def _resolve_task_up_categories(task):
@@ -390,8 +333,7 @@ def _build_task_insert_payload(category_id: str, display_title: str):
         "top_category_name_cn": top_category.get("name_cn") if top_category else None,
         "top_category_name_ru": top_category.get("name_ru") if top_category else None,
     }
-    if _analysis_tasks_has_updated_at():
-        payload["updated_at"] = now_iso
+    payload["updated_at"] = now_iso
     if initial_up_categories:
         payload["up_categories"] = json.dumps(initial_up_categories, ensure_ascii=False)
     return payload
@@ -494,11 +436,7 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
 
     if top_category and top_category != 'all':
         query = query.eq("top_category_name_cn", top_category)
-        
-    if False and top_category and top_category != 'all':
-        # 通过 supabase jsonb 的包含查询过滤含有该大类名的节点
-        query = query.contains("up_categories", [{"category_name": top_category}])
-    
+
     # 1. 获取满足条件的精确总数
     if hide_zero:
         filtered = []
@@ -1013,10 +951,6 @@ def retry_task(task_id: str, background_tasks: BackgroundTasks):
     if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
         return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
 
-    # 哥，针对防重试连点（幂等性）的增强：如果已经在队列或执行中，直接拦截
-    if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
-        return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
-
     # 强制重置状态和进度
     payload = {
         "status": "pending", 
@@ -1024,8 +958,7 @@ def retry_task(task_id: str, background_tasks: BackgroundTasks):
         "error_msg": None, 
         "excel_path": None
     }
-    if _analysis_tasks_has_updated_at():
-        payload["updated_at"] = datetime.now().isoformat()
+    payload["updated_at"] = datetime.now().isoformat()
     sb.table("analysis_tasks").update(payload).eq("id", task_id).execute()
     
     # 获取原始类别ID，如果是空则用名称兜底
@@ -1105,8 +1038,7 @@ def recover_interrupted_tasks(req: RecoverInterruptedTasksRequest, background_ta
             "error_msg": None,
             "excel_path": None,
         }
-        if _analysis_tasks_has_updated_at():
-            payload["updated_at"] = datetime.now().isoformat()
+        payload["updated_at"] = datetime.now().isoformat()
 
         sb.table("analysis_tasks").update(payload).eq("id", task["id"]).execute()
         background_tasks.add_task(
@@ -1223,8 +1155,7 @@ async def execute_rpa_pipeline(task_id: str, category_id: str, category_name: st
         if url: payload["excel_path"] = url
         if err: payload["error_msg"] = err
         if duration: payload["duration"] = duration
-        if _analysis_tasks_has_updated_at():
-            payload["updated_at"] = datetime.now().isoformat()
+        payload["updated_at"] = datetime.now().isoformat()
         await asyncio.to_thread(sb.table("analysis_tasks").update(payload).eq("id", task_id).execute)
 
     async def write_log(f, msg):
