@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "eslint .",
+    "test": "node --test src/components/reports/reportUtils.test.js",
+    "test:reports": "node --test src/components/reports/reportUtils.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
