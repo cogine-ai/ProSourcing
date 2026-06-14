@@ -70,6 +70,9 @@ def is_valid_uuid(val):
     except:
         return False
 
+from core.rpa_category_id import resolve_niche_category_id
+
+
 def json_safe(obj):
     """确保对象可以被 JSON 序列化，如果不可序列，返回 None。
     主要用于防止 coroutine、异步对象等被意外传入 Supabase JSONB 字段。
@@ -162,7 +165,7 @@ def process_rpa_data(task_id=None, input_file=None):
         new_task_data = {
             "category": f"RPA采集_{niche_stats.get('category_name', '未知')}_{datetime.now().strftime('%m%d_%H%M')}",
             "status": "completed",
-            "category_id": niche_stats.get("category_id"),
+            "category_id": resolve_niche_category_id(niche_stats),
             "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
             "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
             "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False)
@@ -348,7 +351,7 @@ def process_rpa_data(task_id=None, input_file=None):
                 
                 # 更新 Task 汇总信息
                 final_update = {
-                    "category_id": niche_stats.get("category_id"),
+                    "category_id": resolve_niche_category_id(niche_stats),
                     "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
                     "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
                     "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False),
@@ -371,7 +374,7 @@ def process_rpa_data(task_id=None, input_file=None):
                     supabase.table("products_calculated_metrics").upsert(calc_chunk).execute()
                 
                 final_update = {
-                    "category_id": niche_stats.get("category_ext_id"),
+                    "category_id": resolve_niche_category_id(niche_stats),
                     "category_stats": json_safe(niche_stats),
                     "trend_data": json_safe(trend),
                     "up_categories": json_safe(niche_stats.get("up_categories_json")),
