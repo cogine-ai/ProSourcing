@@ -89,6 +89,10 @@ def json_safe(obj):
         print(f"[WARN] json_safe: 字段不可序列化，已置 None: {e}")
         return None
 
+def _resolve_niche_category_id(niche_stats):
+    return niche_stats.get("category_id") or niche_stats.get("category_ext_id")
+
+
 def process_rpa_data(task_id=None, input_file=None):
     # 如果没传 input_file，则尝试拼接默认路径
     # 哥，这里一定要统一用相对路径，不然容器里找不着
@@ -162,7 +166,7 @@ def process_rpa_data(task_id=None, input_file=None):
         new_task_data = {
             "category": f"RPA采集_{niche_stats.get('category_name', '未知')}_{datetime.now().strftime('%m%d_%H%M')}",
             "status": "completed",
-            "category_id": niche_stats.get("category_id"),
+            "category_id": _resolve_niche_category_id(niche_stats),
             "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
             "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
             "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False)
@@ -336,19 +340,19 @@ def process_rpa_data(task_id=None, input_file=None):
                 
                 # 同步原始数据
                 raw_query = """INSERT INTO products_raw_data (sku, task_id, product_name, brand_name, gen_brand_id, product_url, sale_price, product_rate, review_qty, merchant_count, sale_qty, sale_amount, amount_abc, amount_prc, preview_image_list, created_dt, category_name, category_ext_id, restrict_type, last_sale_date) 
-                               VALUES %s ON CONFLICT (sku, task_id) DO UPDATE SET product_name = EXCLUDED.product_name, brand_name = EXCLUDED.brand_name, gen_brand_id = EXCLUDED.gen_brand_id, product_url = EXCLUDED.product_url, sale_price = EXCLUDED.sale_price, product_rate = EXCLUDED.product_rate, review_qty = EXCLUDED.review_qty, merchant_count = EXCLUDED.merchant_count, sale_qty = EXCLUDED.sale_qty, sale_amount = EXCLUDED.sale_amount, amount_abc = EXCLUDED.amount_abc, amount_prc = EXCLUDED.amount_prc, preview_image_list = EXCLUDED.preview_image_list, created_dt = EXCLUDED.created_dt, category_name = EXCLUDED.category_name, category_ext_id = EXCLUDED.category_ext_id, restrict_type = EXCLUDED.restrict_type, last_sale_date = EXCLUDED.last_sale_date"""
+                               VALUES %s ON CONFLICT (sku) DO UPDATE SET task_id = EXCLUDED.task_id, product_name = EXCLUDED.product_name, brand_name = EXCLUDED.brand_name, gen_brand_id = EXCLUDED.gen_brand_id, product_url = EXCLUDED.product_url, sale_price = EXCLUDED.sale_price, product_rate = EXCLUDED.product_rate, review_qty = EXCLUDED.review_qty, merchant_count = EXCLUDED.merchant_count, sale_qty = EXCLUDED.sale_qty, sale_amount = EXCLUDED.sale_amount, amount_abc = EXCLUDED.amount_abc, amount_prc = EXCLUDED.amount_prc, preview_image_list = EXCLUDED.preview_image_list, created_dt = EXCLUDED.created_dt, category_name = EXCLUDED.category_name, category_ext_id = EXCLUDED.category_ext_id, restrict_type = EXCLUDED.restrict_type, last_sale_date = EXCLUDED.last_sale_date"""
                 
                 raw_values = [(p['sku'], p['task_id'], p['product_name'], p['brand_name'], p['gen_brand_id'], p['product_url'], p['sale_price'], p['product_rate'], p['review_qty'], p['merchant_count'], p['sale_qty'], p['sale_amount'], p['amount_abc'], p['amount_prc'], p['preview_image_list'], p['created_dt'], p['category_name'], p['category_ext_id'], p['restrict_type'], p['last_sale_date']) for p in raw_payloads]
                 execute_values(cursor, raw_query, raw_values)
                 
                 # 同步计算指标
-                calc_query = "INSERT INTO products_calculated_metrics (sku, task_id, total_score) VALUES %s ON CONFLICT (sku, task_id) DO UPDATE SET total_score = EXCLUDED.total_score"
+                calc_query = "INSERT INTO products_calculated_metrics (sku, task_id, total_score) VALUES %s ON CONFLICT (sku) DO UPDATE SET task_id = EXCLUDED.task_id, total_score = EXCLUDED.total_score"
                 calc_values = [(p['sku'], p['task_id'], p['total_score']) for p in calc_payloads]
                 execute_values(cursor, calc_query, calc_values)
                 
                 # 更新 Task 汇总信息
                 final_update = {
-                    "category_id": niche_stats.get("category_id"),
+                    "category_id": _resolve_niche_category_id(niche_stats),
                     "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
                     "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
                     "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False),
@@ -371,7 +375,7 @@ def process_rpa_data(task_id=None, input_file=None):
                     supabase.table("products_calculated_metrics").upsert(calc_chunk).execute()
                 
                 final_update = {
-                    "category_id": niche_stats.get("category_ext_id"),
+                    "category_id": _resolve_niche_category_id(niche_stats),
                     "category_stats": json_safe(niche_stats),
                     "trend_data": json_safe(trend),
                     "up_categories": json_safe(niche_stats.get("up_categories_json")),
