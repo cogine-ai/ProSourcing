@@ -14,6 +14,16 @@ from fastapi.staticfiles import StaticFiles
 import sys
 import json
 
+from .task_filters import (
+    apply_leaf_category_cn_label as _apply_leaf_category_cn_label,
+    category_code_variants as _category_code_variants,
+    expand_status_filters as _expand_status_filters,
+    get_task_valid_product_count as _get_task_valid_product_count,
+    normalize_category_code as _normalize_category_code,
+    normalize_up_categories as _normalize_up_categories,
+    parse_task_timestamp as _parse_task_timestamp,
+)
+
 # 将项目根目录添加到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -72,46 +82,6 @@ def _start_top_category_stats_refresh():
         stderr=subprocess.STDOUT,
     )
     return True
-
-
-def _get_task_valid_product_count(task):
-    stats = task.get("category_stats") or {}
-    if isinstance(stats, str):
-        try:
-            stats = json.loads(stats)
-        except json.JSONDecodeError:
-            stats = {}
-
-    for key in ("valid_product_count", "valid_product_qty"):
-        value = stats.get(key)
-        if value is None:
-            continue
-        try:
-            return int(float(str(value).replace(",", "").strip() or 0))
-        except (TypeError, ValueError):
-            continue
-
-    return 0
-
-
-def _normalize_category_code(category_id):
-    raw = str(category_id or "").strip()
-    if not raw:
-        return ""
-    return raw.zfill(5) if raw.isdigit() else raw
-
-
-def _category_code_variants(category_id):
-    raw = str(category_id or "").strip()
-    if not raw:
-        return []
-
-    variants = []
-    for candidate in (raw, raw.zfill(5) if raw.isdigit() else raw, raw.lstrip("0") or "0"):
-        candidate = str(candidate).strip()
-        if candidate and candidate not in variants:
-            variants.append(candidate)
-    return variants
 
 
 def _sync_last_crawl_date(category_id, crawl_date=None):
@@ -175,33 +145,6 @@ def _extract_category_aliases(category_value):
     return aliases
 
 
-def _contains_chinese(text):
-    return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
-
-
-def _normalize_up_categories(up_categories):
-    if not up_categories:
-        return []
-
-    if isinstance(up_categories, str):
-        raw = up_categories.strip()
-        if not raw:
-            return []
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                return parsed
-            if parsed:
-                return [parsed]
-        except json.JSONDecodeError:
-            return [raw]
-
-    if isinstance(up_categories, list):
-        return up_categories
-
-    return [up_categories]
-
-
 def _task_matches_top_category(task, top_category):
     target_aliases = _extract_category_aliases(top_category)
     if not target_aliases:
@@ -213,33 +156,6 @@ def _task_matches_top_category(task, top_category):
             return True
 
     return False
-
-
-RUNNING_TASK_STATUSES = {"pending", "scraping", "crawling", "reporting", "processing", "retrying"}
-
-
-def _expand_status_filters(status_filters):
-    if not status_filters:
-        return []
-
-    if isinstance(status_filters, str):
-        raw_filters = [status_filters]
-    else:
-        raw_filters = list(status_filters)
-
-    expanded = []
-    for item in raw_filters:
-        normalized = (item or "").strip().lower()
-        if not normalized or normalized == "all":
-            continue
-        if normalized == "pending":
-            for running_status in RUNNING_TASK_STATUSES:
-                if running_status not in expanded:
-                    expanded.append(running_status)
-            continue
-        if normalized not in expanded:
-            expanded.append(normalized)
-    return expanded
 
 
 @lru_cache(maxsize=1024)
@@ -335,40 +251,8 @@ def _enrich_task_metadata(task):
         task["top_category_label"] = top_category.get("name_cn") or top_category.get("category_name") or top_category.get("name_ru") or "一级分类"
     else:
         task["top_category_label"] = None
-    raw_category = str(task.get("category") or "").strip()
-    leaf_category = task_path[-1] if task_path else None
-    leaf_name_cn = str((leaf_category or {}).get("name_cn") or (leaf_category or {}).get("category_name") or "").strip()
-    if leaf_name_cn and (not raw_category or not _contains_chinese(raw_category)):
-        task["category"] = leaf_name_cn
-
+    _apply_leaf_category_cn_label(task, task_path)
     return task
-
-
-def _parse_task_timestamp(value):
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    if raw.endswith("Z"):
-        raw = raw[:-1] + "+00:00"
-    try:
-        return datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-
-
-def _task_matches_days(task, days):
-    if not days or days <= 0:
-        return True
-    created_at = _parse_task_timestamp(task.get("created_at"))
-    if not created_at:
-        return False
-    return created_at >= (datetime.now(created_at.tzinfo) - timedelta(days=days))
-
-
-def _task_matches_status_filters(task, expanded_statuses):
-    if not expanded_statuses:
-        return True
-    return (task.get("status") or "").strip().lower() in expanded_statuses
 
 
 def _build_initial_up_categories(category_id: str):
