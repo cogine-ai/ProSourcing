@@ -26,7 +26,6 @@ is_docker = (
 
 from core.final_pipeline import run_scoring_and_export
 from core.scoring import ScoringEngine, DEFAULT_CONFIG
-# from deep_translator import GoogleTranslator
 
 app = FastAPI(title="ProSourcing API")
 
@@ -149,32 +148,6 @@ def _sync_last_crawl_date(category_id, crawl_date=None):
     return updated
 
 
-def _extract_category_aliases(category_value):
-    aliases = set()
-    if category_value is None:
-        return aliases
-
-    if isinstance(category_value, str):
-        value = category_value.strip()
-        if not value:
-            return aliases
-        aliases.add(value)
-        if " (" in value and value.endswith(")"):
-            main_part, _, tail = value.partition(" (")
-            aliases.add(main_part.strip())
-            aliases.add(tail[:-1].strip())
-        return {alias for alias in aliases if alias}
-
-    if isinstance(category_value, dict):
-        for key in ("category_name", "name_ru", "name_cn", "category_cn", "name"):
-            value = category_value.get(key)
-            if isinstance(value, str) and value.strip():
-                aliases.update(_extract_category_aliases(value))
-        return aliases
-
-    return aliases
-
-
 def _contains_chinese(text):
     return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
 
@@ -200,19 +173,6 @@ def _normalize_up_categories(up_categories):
         return up_categories
 
     return [up_categories]
-
-
-def _task_matches_top_category(task, top_category):
-    target_aliases = _extract_category_aliases(top_category)
-    if not target_aliases:
-        return True
-
-    task_path = _normalize_up_categories(task.get("up_categories")) or _resolve_task_up_categories(task)
-    for item in task_path:
-        if _extract_category_aliases(item) & target_aliases:
-            return True
-
-    return False
 
 
 RUNNING_TASK_STATUSES = {"pending", "scraping", "crawling", "reporting", "processing", "retrying"}
@@ -257,24 +217,6 @@ def _get_category_master_row(category_id: str):
         .execute()
     )
     return res.data[0] if res.data else None
-
-
-@lru_cache(maxsize=1)
-def _analysis_tasks_has_updated_at():
-    from core.final_pipeline import supabase as sb
-
-    try:
-        res = (
-            sb.table("information_schema.columns")
-            .select("column_name")
-            .eq("table_name", "analysis_tasks")
-            .eq("column_name", "updated_at")
-            .limit(1)
-            .execute()
-        )
-        return bool(res.data)
-    except Exception:
-        return False
 
 
 def _resolve_task_up_categories(task):
@@ -390,8 +332,7 @@ def _build_task_insert_payload(category_id: str, display_title: str):
         "top_category_name_cn": top_category.get("name_cn") if top_category else None,
         "top_category_name_ru": top_category.get("name_ru") if top_category else None,
     }
-    if _analysis_tasks_has_updated_at():
-        payload["updated_at"] = now_iso
+    payload["updated_at"] = now_iso
     if initial_up_categories:
         payload["up_categories"] = json.dumps(initial_up_categories, ensure_ascii=False)
     return payload
@@ -494,11 +435,7 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
 
     if top_category and top_category != 'all':
         query = query.eq("top_category_name_cn", top_category)
-        
-    if False and top_category and top_category != 'all':
-        # 通过 supabase jsonb 的包含查询过滤含有该大类名的节点
-        query = query.contains("up_categories", [{"category_name": top_category}])
-    
+
     # 1. 获取满足条件的精确总数
     if hide_zero:
         filtered = []
@@ -933,20 +870,6 @@ def system_health():
     }
 
 
-@app.get("/api/categories/search")
-async def search_categories(q: str):
-    """支持模糊检索类目名称 (还原)"""
-    from core.final_pipeline import supabase as sb
-    res = sb.table("categories").select("*").ilike("category_name", f"%{q}%").limit(100).execute()
-    return res.data
-
-@app.get("/api/categories/children/{parent_id}")
-async def get_child_categories(parent_id: str):
-    """获取指定父类目的所有直接子类目 (还原)"""
-    from core.final_pipeline import supabase as sb
-    res = sb.table("categories").select("*").eq("parent_category_id", parent_id).order("sale_product_qty", desc=True).execute()
-    return res.data
-
 @app.get("/api/categories/tree")
 def get_category_tree():
     """复用 top_stats 的逻辑以获取带计数的树根 - 线程模式"""
@@ -1013,10 +936,6 @@ def retry_task(task_id: str, background_tasks: BackgroundTasks):
     if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
         return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
 
-    # 哥，针对防重试连点（幂等性）的增强：如果已经在队列或执行中，直接拦截
-    if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
-        return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
-
     # 强制重置状态和进度
     payload = {
         "status": "pending", 
@@ -1024,8 +943,7 @@ def retry_task(task_id: str, background_tasks: BackgroundTasks):
         "error_msg": None, 
         "excel_path": None
     }
-    if _analysis_tasks_has_updated_at():
-        payload["updated_at"] = datetime.now().isoformat()
+    payload["updated_at"] = datetime.now().isoformat()
     sb.table("analysis_tasks").update(payload).eq("id", task_id).execute()
     
     # 获取原始类别ID，如果是空则用名称兜底
@@ -1105,8 +1023,7 @@ def recover_interrupted_tasks(req: RecoverInterruptedTasksRequest, background_ta
             "error_msg": None,
             "excel_path": None,
         }
-        if _analysis_tasks_has_updated_at():
-            payload["updated_at"] = datetime.now().isoformat()
+        payload["updated_at"] = datetime.now().isoformat()
 
         sb.table("analysis_tasks").update(payload).eq("id", task["id"]).execute()
         background_tasks.add_task(
@@ -1223,8 +1140,7 @@ async def execute_rpa_pipeline(task_id: str, category_id: str, category_name: st
         if url: payload["excel_path"] = url
         if err: payload["error_msg"] = err
         if duration: payload["duration"] = duration
-        if _analysis_tasks_has_updated_at():
-            payload["updated_at"] = datetime.now().isoformat()
+        payload["updated_at"] = datetime.now().isoformat()
         await asyncio.to_thread(sb.table("analysis_tasks").update(payload).eq("id", task_id).execute)
 
     async def write_log(f, msg):
@@ -1355,78 +1271,6 @@ def get_global_stats():
 
 @app.get('/api/kaspi/tree')
 def get_kaspi_global_tree():
-    return get_kaspi_global_tree_v2()
-
-def get_kaspi_global_tree_v2():
-    return get_kaspi_global_tree_v4()
-
-def get_kaspi_global_tree_v3():
-    """基于 algatop_categories_master 构建完整分类树结构 - 彻底解决阻塞问题"""
-    from core.final_pipeline import supabase as sb
-    try:
-        all_cats = []
-        page_size = 1000
-        for i in range(10):
-            res = sb.table('algatop_categories_master').select('*').range(i * page_size, (i + 1) * page_size - 1).execute()
-            if not res.data: break
-            all_cats.extend(res.data)
-            if len(res.data) < page_size: break
-        
-        if not all_cats: return []
-
-        # 哥，针对所有叶子节点，一次性查出它们最近的成功采集时间
-        all_leaf_ids = sorted({
-            v
-            for c in all_cats if c.get('is_leaf')
-            for v in (str(c['algatop_id']), str(c['algatop_id']).zfill(5))
-        })
-        date_map = {}
-            # 哥，采纳 CodeRabbit 建议：增加叶子类目过滤，并改用 updated_at (更准确的完成时间)
-        try:
-            res_tasks = (
-                sb.table("analysis_tasks")
-                .select("category_id, updated_at, created_at")
-                .eq("status", "completed")
-                .in_("category_id", all_leaf_ids)
-                .order("updated_at", desc=True)
-                .execute()
-            )
-            for t in res_tasks.data:
-                cid = str(t.get('category_id')) if t.get('category_id') else None
-                dt = t.get('updated_at') or t.get('created_at')
-                # 倒序查询，命中即最新
-                if cid and dt and cid not in date_map:
-                    # 只取日期部分 yyyy-mm-dd
-                    date_map[cid] = dt[:10]
-        except Exception as eTree:
-            print(f"[TREE DATE ERROR] {eTree}")
-
-
-        p_map = {}
-        for c in all_cats:
-            raw_pid = c.get('parent_id')
-            pid = str(raw_pid) if raw_pid and str(raw_pid).lower() != 'none' else ''
-            node = {
-                'category_code': str(c['algatop_id']),
-                'title': c.get('name_cn') or c.get('name_ru') or str(c['algatop_id']),
-                'parent_code': pid,
-                'is_leaf': c.get('is_leaf', False),
-                'last_crawl_date': date_map.get(str(c['algatop_id'])) or date_map.get(str(c['algatop_id']).zfill(5))
-            }
-            p_map.setdefault(pid, []).append(node)
-
-        def build_tree(pid=''):
-            children = p_map.get(pid, [])
-            for child in children:
-                child['children'] = build_tree(child['category_code'])
-            return children
-
-        return build_tree('')
-    except Exception as e:
-        print(f"[TREE API ERROR] {str(e)}")
-        return []
-
-def get_kaspi_global_tree_v4():
     """Build full kaspi tree from categories table and attach last_crawl_date."""
     from core.final_pipeline import supabase as sb
     try:
@@ -1536,7 +1380,7 @@ def get_kaspi_global_tree_v4():
 
         return build_tree("")
     except Exception as e:
-        print(f"[TREE API ERROR V4] {str(e)}")
+        print(f"[TREE API ERROR] {str(e)}")
         return []
 
 @app.post('/api/kaspi/tasks/batch')
