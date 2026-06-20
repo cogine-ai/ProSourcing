@@ -144,14 +144,6 @@ const App = () => {
         sku_count: "154.2K",
     });
 
-    const tabs = [
-        { id: 'market', label: '首页', description: '全量大盘数据概览', icon: <LayoutDashboard size={18} /> },
-        { id: 'tasks', label: '采集任务', description: '分类树采集任务管理', icon: <Target size={18} /> },
-        { id: 'archives', label: '选品报告', description: '查看 AI 生成的选品分析结果', icon: <History size={18} /> },
-        { id: 'algo', label: '算法配置', description: '评分维度与权重管理', icon: <Settings2 size={18} /> },
-        { id: 'settings', label: '系统管理', description: '账号、权限与系统配置', icon: <Users size={18} /> },
-    ];
-
     const tabsCN = [
         { id: 'market', label: '首页', description: '全量大盘数据概览', icon: <LayoutDashboard size={18} /> },
         { id: 'tasks', label: '采集任务', description: '分类模型树采集任务管理', icon: <Target size={18} /> },

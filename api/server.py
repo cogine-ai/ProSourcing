@@ -493,10 +493,6 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
 
     if top_category and top_category != 'all':
         query = query.eq("top_category_name_cn", top_category)
-        
-    if False and top_category and top_category != 'all':
-        # 通过 supabase jsonb 的包含查询过滤含有该大类名的节点
-        query = query.contains("up_categories", [{"category_name": top_category}])
     
     # 1. 获取满足条件的精确总数
     if hide_zero:
@@ -931,20 +927,6 @@ def system_health():
         "timestamp": datetime.now().isoformat()
     }
 
-
-@app.get("/api/categories/search")
-async def search_categories(q: str):
-    """支持模糊检索类目名称 (还原)"""
-    from core.final_pipeline import supabase as sb
-    res = sb.table("categories").select("*").ilike("category_name", f"%{q}%").limit(100).execute()
-    return res.data
-
-@app.get("/api/categories/children/{parent_id}")
-async def get_child_categories(parent_id: str):
-    """获取指定父类目的所有直接子类目 (还原)"""
-    from core.final_pipeline import supabase as sb
-    res = sb.table("categories").select("*").eq("parent_category_id", parent_id).order("sale_product_qty", desc=True).execute()
-    return res.data
 
 @app.get("/api/categories/tree")
 def get_category_tree():
