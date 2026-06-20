@@ -47,7 +47,7 @@ const API_BASE = window.location.hostname === 'localhost' || window.location.hos
     : window.location.origin;
 const App = () => {
     const [taskProducts, setTaskProducts] = useState([]);
-    const [activeTab, setActiveTab] = useState('archives'); // Default to archives for now
+    const [activeTab, setActiveTab] = useState('archives');
     const [reportSearch, setReportSearch] = useState('');
     const [reportStatus, setReportStatus] = useState('all');
     const [reportTime, setReportTime] = useState('all');
@@ -86,11 +86,6 @@ const App = () => {
             return iso;
         }
     };
-    // Original activeTab initialization logic, now commented out or replaced by the above line
-    // const [activeTab, setActiveTab] = useState(() => {
-    //     const hash = window.location.hash.replace('#', '');
-    //     return ['market', 'tasks', 'archives', 'algo', 'settings'].includes(hash) ? hash : 'market';
-    // });
     const [isDark, setIsDark] = useState(true);
     const [categories, setCategories] = useState([]);
     const [allCategories, setAllCategories] = useState([]);
