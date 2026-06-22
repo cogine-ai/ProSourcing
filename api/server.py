@@ -26,7 +26,6 @@ is_docker = (
 
 from core.final_pipeline import run_scoring_and_export
 from core.scoring import ScoringEngine, DEFAULT_CONFIG
-# from deep_translator import GoogleTranslator
 
 app = FastAPI(title="ProSourcing API")
 
@@ -38,8 +37,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 临时内存任务追踪 (包含进程对象以便取消)
-tasks_db = {}
 process_pool = {}
 browser_launch_lock = asyncio.Lock()
 top_category_stats_process = None
@@ -444,32 +441,6 @@ class LogCleanupRequest(BaseModel):
     days: Optional[int] = None
     date: Optional[str] = None # YYYY-MM-DD
 
-@app.post("/api/tasks", response_model=TaskStatus)
-def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
-    from core.final_pipeline import supabase as sb
-    # 哥，先把中文名翻出来
-    cat_name = req.category
-    category_id = req.category
-    res_master = sb.table("algatop_categories_master").select("algatop_id,name_cn").eq("name_ru", req.category).limit(1).execute()
-    if res_master.data:
-        category_id = str(res_master.data[0].get("algatop_id") or req.category)
-        cat_name = res_master.data[0]['name_cn']
-        
-    task_data = _build_task_insert_payload(category_id, cat_name)
-    task_data = _apply_top_category_overrides(
-        task_data,
-        req.top_category_id,
-        req.top_category_name_cn,
-        req.top_category_name_ru,
-    )
-    res = sb.table("analysis_tasks").insert(task_data).execute()
-    db_task = res.data[0]
-    task_id = db_task['id']
-    task = TaskStatus(task_id=task_id, category=cat_name, status="pending", progress=0)
-    tasks_db[task_id] = task
-    background_tasks.add_task(execute_rpa_pipeline, task_id, req.category, cat_name)
-    return task
-
 @app.get("/api/tasks/history")
 def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None, days: Optional[int] = None, status: Optional[List[str]] = Query(None), top_category: Optional[str] = None, hide_zero: bool = False):
     """获取历史任务记录，支持物理分页和搜索/时间筛选"""
@@ -494,11 +465,7 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
 
     if top_category and top_category != 'all':
         query = query.eq("top_category_name_cn", top_category)
-        
-    if False and top_category and top_category != 'all':
-        # 通过 supabase jsonb 的包含查询过滤含有该大类名的节点
-        query = query.contains("up_categories", [{"category_name": top_category}])
-    
+
     # 1. 获取满足条件的精确总数
     if hide_zero:
         filtered = []
@@ -827,11 +794,6 @@ async def cancel_task(task_id: str):
         try:
             # 暴力清理该进程及其所有子进程 (包括 chromium)
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)
-            # 同步更新内存和数据库
-            if task_id in tasks_db:
-                tasks_db[task_id].status = "cancelled"
-                tasks_db[task_id].progress = 0
-            
             from core.final_pipeline import supabase as sb
             sb.table("analysis_tasks").update({"status": "cancelled", "progress": 0}).eq("id", task_id).execute()
             return {"status": "success"}
@@ -1355,76 +1317,7 @@ def get_global_stats():
 
 @app.get('/api/kaspi/tree')
 def get_kaspi_global_tree():
-    return get_kaspi_global_tree_v2()
-
-def get_kaspi_global_tree_v2():
     return get_kaspi_global_tree_v4()
-
-def get_kaspi_global_tree_v3():
-    """基于 algatop_categories_master 构建完整分类树结构 - 彻底解决阻塞问题"""
-    from core.final_pipeline import supabase as sb
-    try:
-        all_cats = []
-        page_size = 1000
-        for i in range(10):
-            res = sb.table('algatop_categories_master').select('*').range(i * page_size, (i + 1) * page_size - 1).execute()
-            if not res.data: break
-            all_cats.extend(res.data)
-            if len(res.data) < page_size: break
-        
-        if not all_cats: return []
-
-        # 哥，针对所有叶子节点，一次性查出它们最近的成功采集时间
-        all_leaf_ids = sorted({
-            v
-            for c in all_cats if c.get('is_leaf')
-            for v in (str(c['algatop_id']), str(c['algatop_id']).zfill(5))
-        })
-        date_map = {}
-            # 哥，采纳 CodeRabbit 建议：增加叶子类目过滤，并改用 updated_at (更准确的完成时间)
-        try:
-            res_tasks = (
-                sb.table("analysis_tasks")
-                .select("category_id, updated_at, created_at")
-                .eq("status", "completed")
-                .in_("category_id", all_leaf_ids)
-                .order("updated_at", desc=True)
-                .execute()
-            )
-            for t in res_tasks.data:
-                cid = str(t.get('category_id')) if t.get('category_id') else None
-                dt = t.get('updated_at') or t.get('created_at')
-                # 倒序查询，命中即最新
-                if cid and dt and cid not in date_map:
-                    # 只取日期部分 yyyy-mm-dd
-                    date_map[cid] = dt[:10]
-        except Exception as eTree:
-            print(f"[TREE DATE ERROR] {eTree}")
-
-
-        p_map = {}
-        for c in all_cats:
-            raw_pid = c.get('parent_id')
-            pid = str(raw_pid) if raw_pid and str(raw_pid).lower() != 'none' else ''
-            node = {
-                'category_code': str(c['algatop_id']),
-                'title': c.get('name_cn') or c.get('name_ru') or str(c['algatop_id']),
-                'parent_code': pid,
-                'is_leaf': c.get('is_leaf', False),
-                'last_crawl_date': date_map.get(str(c['algatop_id'])) or date_map.get(str(c['algatop_id']).zfill(5))
-            }
-            p_map.setdefault(pid, []).append(node)
-
-        def build_tree(pid=''):
-            children = p_map.get(pid, [])
-            for child in children:
-                child['children'] = build_tree(child['category_code'])
-            return children
-
-        return build_tree('')
-    except Exception as e:
-        print(f"[TREE API ERROR] {str(e)}")
-        return []
 
 def get_kaspi_global_tree_v4():
     """Build full kaspi tree from categories table and attach last_crawl_date."""
