@@ -89,6 +89,85 @@ def json_safe(obj):
         print(f"[WARN] json_safe: 字段不可序列化，已置 None: {e}")
         return None
 
+_products_conflict_target_cache = None
+
+_RAW_UPSERT_UPDATE_FIELDS = (
+    "product_name", "brand_name", "gen_brand_id", "product_url", "sale_price",
+    "product_rate", "review_qty", "merchant_count", "sale_qty", "sale_amount",
+    "amount_abc", "amount_prc", "preview_image_list", "created_dt",
+    "category_name", "category_ext_id", "restrict_type", "last_sale_date",
+)
+
+
+def _get_table_primary_key_columns(conn, table_name):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT kcu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+         AND tc.table_schema = kcu.table_schema
+        WHERE tc.table_schema = 'public'
+          AND tc.table_name = %s
+          AND tc.constraint_type = 'PRIMARY KEY'
+        ORDER BY kcu.ordinal_position
+        """,
+        (table_name,),
+    )
+    cols = [row[0] for row in cursor.fetchall()]
+    cursor.close()
+    return tuple(cols)
+
+
+def _get_products_conflict_target(conn):
+    global _products_conflict_target_cache
+    if _products_conflict_target_cache is not None:
+        return _products_conflict_target_cache
+
+    cols = _get_table_primary_key_columns(conn, "products_raw_data")
+    if not cols:
+        cols = ("sku",)
+    _products_conflict_target_cache = cols
+    return cols
+
+
+def _resolve_niche_category_id(niche_stats):
+    if not niche_stats:
+        return None
+    for key in ("category_id", "category_ext_id"):
+        value = niche_stats.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return None
+
+
+def _build_raw_upsert_sql(conflict_cols):
+    conflict = ", ".join(conflict_cols)
+    update_fields = list(_RAW_UPSERT_UPDATE_FIELDS)
+    if conflict_cols == ("sku",):
+        update_fields = ["task_id"] + update_fields
+    set_clause = ", ".join(f"{field} = EXCLUDED.{field}" for field in update_fields)
+    return (
+        "INSERT INTO products_raw_data (sku, task_id, product_name, brand_name, gen_brand_id, "
+        "product_url, sale_price, product_rate, review_qty, merchant_count, sale_qty, sale_amount, "
+        "amount_abc, amount_prc, preview_image_list, created_dt, category_name, category_ext_id, "
+        f"restrict_type, last_sale_date) VALUES %s ON CONFLICT ({conflict}) DO UPDATE SET {set_clause}"
+    )
+
+
+def _build_calc_upsert_sql(conflict_cols):
+    conflict = ", ".join(conflict_cols)
+    update_fields = ["total_score"]
+    if conflict_cols == ("sku",):
+        update_fields = ["task_id", "total_score"]
+    set_clause = ", ".join(f"{field} = EXCLUDED.{field}" for field in update_fields)
+    return (
+        "INSERT INTO products_calculated_metrics (sku, task_id, total_score) VALUES %s "
+        f"ON CONFLICT ({conflict}) DO UPDATE SET {set_clause}"
+    )
+
+
 def process_rpa_data(task_id=None, input_file=None):
     # 如果没传 input_file，则尝试拼接默认路径
     # 哥，这里一定要统一用相对路径，不然容器里找不着
@@ -162,7 +241,7 @@ def process_rpa_data(task_id=None, input_file=None):
         new_task_data = {
             "category": f"RPA采集_{niche_stats.get('category_name', '未知')}_{datetime.now().strftime('%m%d_%H%M')}",
             "status": "completed",
-            "category_id": niche_stats.get("category_id"),
+            "category_id": _resolve_niche_category_id(niche_stats),
             "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
             "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
             "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False)
@@ -333,22 +412,22 @@ def process_rpa_data(task_id=None, input_file=None):
             if ENV_MOD == "production":
                 print(f"[SYNC] 正在同步 {len(raw_payloads)} 条数据至本地 PostgreSQL...")
                 cursor = conn.cursor()
+                conflict_cols = _get_products_conflict_target(conn)
                 
                 # 同步原始数据
-                raw_query = """INSERT INTO products_raw_data (sku, task_id, product_name, brand_name, gen_brand_id, product_url, sale_price, product_rate, review_qty, merchant_count, sale_qty, sale_amount, amount_abc, amount_prc, preview_image_list, created_dt, category_name, category_ext_id, restrict_type, last_sale_date) 
-                               VALUES %s ON CONFLICT (sku, task_id) DO UPDATE SET product_name = EXCLUDED.product_name, brand_name = EXCLUDED.brand_name, gen_brand_id = EXCLUDED.gen_brand_id, product_url = EXCLUDED.product_url, sale_price = EXCLUDED.sale_price, product_rate = EXCLUDED.product_rate, review_qty = EXCLUDED.review_qty, merchant_count = EXCLUDED.merchant_count, sale_qty = EXCLUDED.sale_qty, sale_amount = EXCLUDED.sale_amount, amount_abc = EXCLUDED.amount_abc, amount_prc = EXCLUDED.amount_prc, preview_image_list = EXCLUDED.preview_image_list, created_dt = EXCLUDED.created_dt, category_name = EXCLUDED.category_name, category_ext_id = EXCLUDED.category_ext_id, restrict_type = EXCLUDED.restrict_type, last_sale_date = EXCLUDED.last_sale_date"""
+                raw_query = _build_raw_upsert_sql(conflict_cols)
                 
                 raw_values = [(p['sku'], p['task_id'], p['product_name'], p['brand_name'], p['gen_brand_id'], p['product_url'], p['sale_price'], p['product_rate'], p['review_qty'], p['merchant_count'], p['sale_qty'], p['sale_amount'], p['amount_abc'], p['amount_prc'], p['preview_image_list'], p['created_dt'], p['category_name'], p['category_ext_id'], p['restrict_type'], p['last_sale_date']) for p in raw_payloads]
                 execute_values(cursor, raw_query, raw_values)
                 
                 # 同步计算指标
-                calc_query = "INSERT INTO products_calculated_metrics (sku, task_id, total_score) VALUES %s ON CONFLICT (sku, task_id) DO UPDATE SET total_score = EXCLUDED.total_score"
+                calc_query = _build_calc_upsert_sql(conflict_cols)
                 calc_values = [(p['sku'], p['task_id'], p['total_score']) for p in calc_payloads]
                 execute_values(cursor, calc_query, calc_values)
                 
                 # 更新 Task 汇总信息
                 final_update = {
-                    "category_id": niche_stats.get("category_id"),
+                    "category_id": _resolve_niche_category_id(niche_stats),
                     "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
                     "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
                     "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False),
@@ -371,7 +450,7 @@ def process_rpa_data(task_id=None, input_file=None):
                     supabase.table("products_calculated_metrics").upsert(calc_chunk).execute()
                 
                 final_update = {
-                    "category_id": niche_stats.get("category_ext_id"),
+                    "category_id": _resolve_niche_category_id(niche_stats),
                     "category_stats": json_safe(niche_stats),
                     "trend_data": json_safe(trend),
                     "up_categories": json_safe(niche_stats.get("up_categories_json")),
