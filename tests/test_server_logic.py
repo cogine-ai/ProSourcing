@@ -40,7 +40,7 @@ def test_full_logic():
     def find_leaves_in_memory(p_id):
         children = p_map.get(p_id, [])
         for cat in children:
-            if cat["is_has_subcategory"] == 0:
+            if cat.get("is_leaf"):
                 all_leaves.append(cat)
             else:
                 find_leaves_in_memory(cat["category_id"])
