@@ -367,11 +367,11 @@ def process_rpa_data(task_id=None, input_file=None):
                 for i in range(0, len(raw_payloads), BATCH_SIZE):
                     raw_chunk = raw_payloads[i:i + BATCH_SIZE]
                     calc_chunk = calc_payloads[i:i + BATCH_SIZE]
-                    supabase.table("products_raw_data").upsert(raw_chunk).execute()
-                    supabase.table("products_calculated_metrics").upsert(calc_chunk).execute()
+                    supabase.table("products_raw_data").upsert(raw_chunk, on_conflict="sku,task_id").execute()
+                    supabase.table("products_calculated_metrics").upsert(calc_chunk, on_conflict="sku,task_id").execute()
                 
                 final_update = {
-                    "category_id": niche_stats.get("category_ext_id"),
+                    "category_id": niche_stats.get("category_id"),
                     "category_stats": json_safe(niche_stats),
                     "trend_data": json_safe(trend),
                     "up_categories": json_safe(niche_stats.get("up_categories_json")),

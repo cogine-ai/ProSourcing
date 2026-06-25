@@ -1,8 +1,27 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+CREATE TABLE IF NOT EXISTS public.analysis_tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    category TEXT,
+    status TEXT DEFAULT 'pending',
+    progress INTEGER DEFAULT 0,
+    error_msg TEXT,
+    excel_path TEXT,
+    duration TEXT,
+    category_id TEXT,
+    category_stats JSONB,
+    trend_data JSONB,
+    up_categories JSONB,
+    top_category_id TEXT,
+    top_category_name_cn TEXT,
+    top_category_name_ru TEXT,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
+);
+
 CREATE TABLE IF NOT EXISTS public.products_raw_data (
-    sku TEXT PRIMARY KEY,
-    task_id UUID,
+    sku TEXT NOT NULL,
+    task_id UUID NOT NULL REFERENCES public.analysis_tasks(id) ON DELETE CASCADE,
     product_name TEXT,
     brand_name TEXT,
     gen_brand_id TEXT,
@@ -22,33 +41,17 @@ CREATE TABLE IF NOT EXISTS public.products_raw_data (
     restrict_type TEXT,
     last_sale_date DATE,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
+    PRIMARY KEY (sku, task_id)
 );
 
 CREATE TABLE IF NOT EXISTS public.products_calculated_metrics (
-    sku TEXT PRIMARY KEY REFERENCES public.products_raw_data(sku) ON DELETE CASCADE,
-    task_id UUID,
+    sku TEXT NOT NULL,
+    task_id UUID NOT NULL,
     total_score NUMERIC,
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
-);
-
-CREATE TABLE IF NOT EXISTS public.analysis_tasks (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    category TEXT,
-    status TEXT DEFAULT 'pending',
-    progress INTEGER DEFAULT 0,
-    error_msg TEXT,
-    excel_path TEXT,
-    duration TEXT,
-    category_id TEXT,
-    category_stats JSONB,
-    trend_data JSONB,
-    up_categories JSONB,
-    top_category_id TEXT,
-    top_category_name_cn TEXT,
-    top_category_name_ru TEXT,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
+    PRIMARY KEY (sku, task_id),
+    FOREIGN KEY (sku, task_id) REFERENCES public.products_raw_data (sku, task_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS public.algatop_categories_master (
