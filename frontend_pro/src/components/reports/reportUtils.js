@@ -1,8 +1,5 @@
 export const anyCyrillic = (str) => /[\u0400-\u04FF]/.test(str);
 
-const DEFAULT_LISTED_DAYS_FALLBACK = 999;
-const MS_PER_DAY = 1000 * 60 * 60 * 24;
-
 const safeParseJsonString = (value, fallback) => {
     if (typeof value !== 'string') return fallback;
 
@@ -16,12 +13,6 @@ const safeParseJsonString = (value, fallback) => {
     } catch {
         return fallback;
     }
-};
-
-const forceIntFallback = (value) => {
-    if (value === null || value === undefined || value === '') return 0;
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : 0;
 };
 
 const normalizeCategoryLookupKey = (value) => String(value || '').trim().toLowerCase();
@@ -173,18 +164,6 @@ export const buildReportPagination = (currentPage, totalPages) => {
     return [1, 'ellipsis-left', safeCurrentPage - 1, safeCurrentPage, safeCurrentPage + 1, 'ellipsis-right', safeTotalPages];
 };
 
-export const getListedDays = (createdDt) => {
-    if (!createdDt) return DEFAULT_LISTED_DAYS_FALLBACK;
-
-    const normalized = typeof createdDt === 'string'
-        ? createdDt.split('.')[0].replace(' ', 'T')
-        : createdDt;
-    const createdMs = Date.parse(normalized);
-    if (!Number.isFinite(createdMs)) return DEFAULT_LISTED_DAYS_FALLBACK;
-
-    return Math.max(1, Math.floor((Date.now() - createdMs) / MS_PER_DAY));
-};
-
 export const getTaskDurationLabel = (task) => {
     if (task?.duration) return task.duration;
     if (!task?.created_at || !task?.finished_at) return '--';
@@ -197,75 +176,6 @@ export const getTaskDurationLabel = (task) => {
     const minutes = Math.floor(diff / 60);
     const seconds = diff % 60;
     return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-};
-
-export const isHighQualityProduct = (raw, filters, forceNum) => {
-    if (!raw) return false;
-
-    const listedDays = getListedDays(raw?.created_dt);
-    return listedDays <= forceNum(filters?.filterDays ?? 0)
-        && forceNum(raw?.sale_qty ?? 0) >= forceNum(filters?.filterSales ?? 0)
-        && forceNum(raw?.review_qty ?? 0) >= forceNum(filters?.filterReviews ?? 0)
-        && forceNum(raw?.sale_price ?? 0) >= forceNum(filters?.filterMinPrice ?? 0);
-};
-
-export const filterTaskProducts = (taskProducts, onlyHighQuality, filters, forceNum) => (
-    taskProducts.filter((tp) => {
-        if (!onlyHighQuality) return true;
-        return isHighQualityProduct(tp?.products_raw_data, filters, forceNum);
-    })
-);
-
-export const getAverageSalesPerProduct = (selectedTask) => {
-    const saleQty = forceIntFallback(selectedTask?.category_stats?.sale_qty);
-    const productQty = forceIntFallback(selectedTask?.category_stats?.sale_product_qty);
-    if (productQty <= 0) return 0;
-    return saleQty / productQty;
-};
-
-export const getTaskProductScore = (tp, getMetricScore, selectedTask) => {
-    const raw = tp?.products_raw_data || {};
-    const listedDays = getListedDays(raw?.created_dt);
-    const avgSales = getAverageSalesPerProduct(selectedTask);
-
-    return getMetricScore('monthly_sales', raw?.sale_qty || 0)
-        + getMetricScore('reviews', raw?.review_qty || 0)
-        + getMetricScore('price', raw?.sale_price || 0)
-        + getMetricScore('days_per_review', listedDays, raw?.review_qty || 0)
-        + getMetricScore('avg_sales', avgSales);
-};
-
-export const sortTaskProducts = (taskProducts, sortBy, getMetricScore, selectedTask) => {
-    const scoreCache = new WeakMap();
-    const getScore = (tp) => {
-        if (!scoreCache.has(tp)) {
-            scoreCache.set(tp, getTaskProductScore(tp, getMetricScore, selectedTask));
-        }
-        return scoreCache.get(tp);
-    };
-
-    return [...taskProducts].sort((a, b) => {
-        const ra = a?.products_raw_data || {};
-        const rb = b?.products_raw_data || {};
-
-        switch (sortBy) {
-            case 'amount':
-                return (rb.sale_amount || 0) - (ra.sale_amount || 0);
-            case 'sales':
-                return (rb.sale_qty || 0) - (ra.sale_qty || 0);
-            case 'price_asc':
-                return (ra.sale_price || 0) - (rb.sale_price || 0);
-            case 'reviews':
-                return (rb.review_qty || 0) - (ra.review_qty || 0);
-            case 'days_desc':
-                return getListedDays(rb.created_dt) - getListedDays(ra.created_dt);
-            case 'days_asc':
-                return getListedDays(ra.created_dt) - getListedDays(rb.created_dt);
-            case 'score':
-            default:
-                return getScore(b) - getScore(a);
-        }
-    });
 };
 
 export const parsePreviewImage = (previewImageList, size = 'medium') => {
