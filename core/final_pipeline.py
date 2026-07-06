@@ -107,11 +107,21 @@ class PGQueryBuilder:
                         placeholders = ", ".join(["%s"] * len(keys))
                         
                         # 哥，这里得智能点，识别不同的主键名，防止 system_settings (key) 等表 upsert 报错
-                        pk_candidates = ['algatop_id', 'sku', 'id', 'key']
-                        pk = next((k for k in pk_candidates if k in keys), "id")
+                        pk_candidates = [
+                            ("sku", "task_id"),
+                            ("algatop_id",),
+                            ("sku",),
+                            ("id",),
+                            ("key",),
+                        ]
+                        pk_cols = next(
+                            (cols for cols in pk_candidates if all(col in keys for col in cols)),
+                            ("id",),
+                        )
+                        pk = ", ".join(pk_cols)
                         
                         # 更新时排除掉主键本身，防止 PostgreSQL 报主键冲突
-                        update_stmt = ", ".join([f"{k}=EXCLUDED.{k}" for k in keys if k != pk])
+                        update_stmt = ", ".join([f"{k}=EXCLUDED.{k}" for k in keys if k not in pk_cols])
                         
                         query = f"INSERT INTO {self._table} ({columns}) VALUES ({placeholders}) ON CONFLICT ({pk}) DO UPDATE SET {update_stmt} RETURNING *"
                         cursor.execute(query, tuple(item.values()))
