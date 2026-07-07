@@ -134,27 +134,6 @@ def process_rpa_data(task_id=None, input_file=None):
         print("[ERROR] 商品列表为空，请检查采集环节。")
         return
 
-    # 翻译商品名称 (哥，客户现场环境可能没网，暂时注掉)
-    # from deep_translator import GoogleTranslator
-    # import concurrent.futures
-
-    # def translate_name(p):
-    #     raw_name = p.get('product_name')
-    #     if not raw_name: return p
-    #     try:
-    #         # 哥，源语言定死为 'ru' (俄语)，提高翻译准确度和稳定性
-    #         translator = GoogleTranslator(source='ru', target='zh-CN')
-    #         p['product_name'] = translator.translate(raw_name)
-    #         # print(f"[DEBUG] Translated: {raw_name[:20]} -> {p['product_name'][:20]}")
-    #     except Exception as e:
-    #         print(f"[WARN] 翻译失败 ({raw_name[:20]}...): {e}")
-    #         pass
-    #     return p
-
-    # print(f"[SYNC] 正在翻译 {len(products)} 条商品名称...")
-    # with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-    #     products = list(executor.map(translate_name, products))
-
     # 1.1 校验 Task ID，如果无效则创建新任务
     final_task_id = task_id
     if not is_valid_uuid(task_id):
