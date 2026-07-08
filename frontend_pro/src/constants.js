@@ -9,8 +9,3 @@ export const TASK_STATUS = {
   FAILED: 'failed',          // 失败
   RETRYING: 'retrying'       // 重试中
 };
-
-export const CATEGORY_TYPES = {
-  SEARCH: 'search',
-  CATEGORY: 'category'
-};
