@@ -25,9 +25,17 @@ is_docker = (
 )
 
 from api.task_filters import (
+    category_code_variants,
+    contains_chinese,
     expand_status_filters,
+    extract_category_aliases,
     get_task_valid_product_count,
     normalize_category_code,
+    normalize_up_categories,
+    parse_task_timestamp,
+    task_matches_days,
+    task_matches_status_filters,
+    task_matches_top_category,
 )
 from core.final_pipeline import run_scoring_and_export
 from core.scoring import ScoringEngine, DEFAULT_CONFIG
@@ -79,19 +87,6 @@ def _start_top_category_stats_refresh():
     return True
 
 
-def _category_code_variants(category_id):
-    raw = str(category_id or "").strip()
-    if not raw:
-        return []
-
-    variants = []
-    for candidate in (raw, raw.zfill(5) if raw.isdigit() else raw, raw.lstrip("0") or "0"):
-        candidate = str(candidate).strip()
-        if candidate and candidate not in variants:
-            variants.append(candidate)
-    return variants
-
-
 def _sync_last_crawl_date(category_id, crawl_date=None):
     normalized_code = normalize_category_code(category_id)
     if not normalized_code:
@@ -111,7 +106,7 @@ def _sync_last_crawl_date(category_id, crawl_date=None):
     ).execute()
 
     updated = False
-    for candidate in _category_code_variants(category_id):
+    for candidate in category_code_variants(category_id):
         try:
             res = (
                 sb.table("algatop_categories_master")
@@ -125,72 +120,6 @@ def _sync_last_crawl_date(category_id, crawl_date=None):
         except Exception:
             continue
     return updated
-
-
-def _extract_category_aliases(category_value):
-    aliases = set()
-    if category_value is None:
-        return aliases
-
-    if isinstance(category_value, str):
-        value = category_value.strip()
-        if not value:
-            return aliases
-        aliases.add(value)
-        if " (" in value and value.endswith(")"):
-            main_part, _, tail = value.partition(" (")
-            aliases.add(main_part.strip())
-            aliases.add(tail[:-1].strip())
-        return {alias for alias in aliases if alias}
-
-    if isinstance(category_value, dict):
-        for key in ("category_name", "name_ru", "name_cn", "category_cn", "name"):
-            value = category_value.get(key)
-            if isinstance(value, str) and value.strip():
-                aliases.update(_extract_category_aliases(value))
-        return aliases
-
-    return aliases
-
-
-def _contains_chinese(text):
-    return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
-
-
-def _normalize_up_categories(up_categories):
-    if not up_categories:
-        return []
-
-    if isinstance(up_categories, str):
-        raw = up_categories.strip()
-        if not raw:
-            return []
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                return parsed
-            if parsed:
-                return [parsed]
-        except json.JSONDecodeError:
-            return [raw]
-
-    if isinstance(up_categories, list):
-        return up_categories
-
-    return [up_categories]
-
-
-def _task_matches_top_category(task, top_category):
-    target_aliases = _extract_category_aliases(top_category)
-    if not target_aliases:
-        return True
-
-    task_path = _normalize_up_categories(task.get("up_categories")) or _resolve_task_up_categories(task)
-    for item in task_path:
-        if _extract_category_aliases(item) & target_aliases:
-            return True
-
-    return False
 
 
 @lru_cache(maxsize=1024)
@@ -229,7 +158,7 @@ def _analysis_tasks_has_updated_at():
 
 
 def _resolve_task_up_categories(task):
-    normalized_existing = _normalize_up_categories(task.get("up_categories"))
+    normalized_existing = normalize_up_categories(task.get("up_categories"))
     has_cn_label = any(
         (
             isinstance(item, dict)
@@ -289,37 +218,10 @@ def _enrich_task_metadata(task):
     raw_category = str(task.get("category") or "").strip()
     leaf_category = task_path[-1] if task_path else None
     leaf_name_cn = str((leaf_category or {}).get("name_cn") or (leaf_category or {}).get("category_name") or "").strip()
-    if leaf_name_cn and (not raw_category or not _contains_chinese(raw_category)):
+    if leaf_name_cn and (not raw_category or not contains_chinese(raw_category)):
         task["category"] = leaf_name_cn
 
     return task
-
-
-def _parse_task_timestamp(value):
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    if raw.endswith("Z"):
-        raw = raw[:-1] + "+00:00"
-    try:
-        return datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-
-
-def _task_matches_days(task, days):
-    if not days or days <= 0:
-        return True
-    created_at = _parse_task_timestamp(task.get("created_at"))
-    if not created_at:
-        return False
-    return created_at >= (datetime.now(created_at.tzinfo) - timedelta(days=days))
-
-
-def _task_matches_status_filters(task, expanded_statuses):
-    if not expanded_statuses:
-        return True
-    return (task.get("status") or "").strip().lower() in expanded_statuses
 
 
 def _build_initial_up_categories(category_id: str):
@@ -1013,14 +915,14 @@ def recover_interrupted_tasks(req: RecoverInterruptedTasksRequest, background_ta
 
     matched = []
     for task in res.data or []:
-        activity_time = _parse_task_timestamp(task.get("updated_at")) or _parse_task_timestamp(task.get("created_at"))
+        activity_time = parse_task_timestamp(task.get("updated_at")) or parse_task_timestamp(task.get("created_at"))
         if activity_time and activity_time > stale_before:
             continue
         matched.append(task)
 
     matched.sort(
         key=lambda task: (
-            _parse_task_timestamp(task.get("updated_at")) or _parse_task_timestamp(task.get("created_at")) or datetime.min
+            parse_task_timestamp(task.get("updated_at")) or parse_task_timestamp(task.get("created_at")) or datetime.min
         )
     )
 
@@ -1433,7 +1335,7 @@ def get_kaspi_global_tree_v4():
                     {
                         candidate
                         for code in missing_leaf_ids
-                        for candidate in _category_code_variants(code)
+                        for candidate in category_code_variants(code)
                     }
                 )
                 res_tasks = (

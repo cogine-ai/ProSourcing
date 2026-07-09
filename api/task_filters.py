@@ -1,6 +1,7 @@
 """Pure task-filter helpers (stdlib-only) for history filtering and unit tests."""
 
 import json
+from datetime import datetime, timedelta
 
 RUNNING_TASK_STATUSES = frozenset(
     {"pending", "scraping", "crawling", "reporting", "processing", "retrying"}
@@ -61,3 +62,113 @@ def normalize_category_code(category_id):
     if not raw:
         return ""
     return raw.zfill(5) if raw.isdigit() else raw
+
+
+def category_code_variants(category_id):
+    raw = str(category_id or "").strip()
+    if not raw:
+        return []
+
+    variants = []
+    for candidate in (raw, raw.zfill(5) if raw.isdigit() else raw, raw.lstrip("0") or "0"):
+        candidate = str(candidate).strip()
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+    return variants
+
+
+def extract_category_aliases(category_value):
+    aliases = set()
+    if category_value is None:
+        return aliases
+
+    if isinstance(category_value, str):
+        value = category_value.strip()
+        if not value:
+            return aliases
+        aliases.add(value)
+        if " (" in value and value.endswith(")"):
+            main_part, _, tail = value.partition(" (")
+            aliases.add(main_part.strip())
+            aliases.add(tail[:-1].strip())
+        return {alias for alias in aliases if alias}
+
+    if isinstance(category_value, dict):
+        for key in ("category_name", "name_ru", "name_cn", "category_cn", "name"):
+            value = category_value.get(key)
+            if isinstance(value, str) and value.strip():
+                aliases.update(extract_category_aliases(value))
+        return aliases
+
+    return aliases
+
+
+def contains_chinese(text):
+    return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
+
+
+def normalize_up_categories(up_categories):
+    if not up_categories:
+        return []
+
+    if isinstance(up_categories, str):
+        raw = up_categories.strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+            if parsed:
+                return [parsed]
+        except json.JSONDecodeError:
+            return [raw]
+
+    if isinstance(up_categories, list):
+        return up_categories
+
+    return [up_categories]
+
+
+def task_matches_top_category(task, top_category, resolve_task_path=None):
+    target_aliases = extract_category_aliases(top_category)
+    if not target_aliases:
+        return True
+
+    task_path = normalize_up_categories(task.get("up_categories"))
+    if not task_path and resolve_task_path:
+        task_path = resolve_task_path(task) or []
+
+    for item in task_path:
+        if extract_category_aliases(item) & target_aliases:
+            return True
+
+    return False
+
+
+def parse_task_timestamp(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def task_matches_days(task, days, now=None):
+    if not days or days <= 0:
+        return True
+    created_at = parse_task_timestamp(task.get("created_at"))
+    if not created_at:
+        return False
+    reference = now or datetime.now(created_at.tzinfo)
+    return created_at >= (reference - timedelta(days=days))
+
+
+def task_matches_status_filters(task, expanded_statuses):
+    if not expanded_statuses:
+        return True
+    return (task.get("status") or "").strip().lower() in expanded_statuses
