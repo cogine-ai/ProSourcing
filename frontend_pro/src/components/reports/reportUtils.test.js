@@ -4,6 +4,8 @@ import {
     anyCyrillic,
     buildCategoryNameLookup,
     buildReportPagination,
+    filterTaskProducts,
+    getAverageSalesPerProduct,
     getCategoryDisplayName,
     getListedDays,
     getTaskDurationLabel,
@@ -188,5 +190,61 @@ describe('product filtering helpers', () => {
         ]);
         assert.equal(parsePreviewImage(payload, 'large'), 'https://example.com/l.jpg');
         assert.equal(parsePreviewImage('not-json'), '');
+    });
+});
+
+describe('filterTaskProducts and average sales', () => {
+    const realDateNow = Date.now;
+
+    after(() => {
+        Date.now = realDateNow;
+    });
+
+    it('returns all products when onlyHighQuality is false', () => {
+        const products = [
+            { products_raw_data: { sale_qty: 0 } },
+            { products_raw_data: { sale_qty: 10 } },
+        ];
+        assert.equal(filterTaskProducts(products, false, {}, forceNum).length, 2);
+    });
+
+    it('filters to high-quality products only', () => {
+        Date.now = () => new Date('2026-05-30T00:00:00Z').getTime();
+
+        const products = [
+            {
+                products_raw_data: {
+                    created_dt: '2026-05-20T00:00:00',
+                    sale_qty: 5,
+                    review_qty: 1,
+                    sale_price: 100,
+                },
+            },
+            {
+                products_raw_data: {
+                    created_dt: '2026-05-20T00:00:00',
+                    sale_qty: 120,
+                    review_qty: 40,
+                    sale_price: 9000,
+                },
+            },
+        ];
+
+        const filters = {
+            filterDays: 30,
+            filterSales: 100,
+            filterReviews: 20,
+            filterMinPrice: 5000,
+        };
+
+        const filtered = filterTaskProducts(products, true, filters, forceNum);
+        assert.equal(filtered.length, 1);
+        assert.equal(filtered[0].products_raw_data.sale_qty, 120);
+    });
+
+    it('computes average sales per product with safe fallbacks', () => {
+        assert.equal(getAverageSalesPerProduct({ category_stats: { sale_qty: 100, sale_product_qty: 4 } }), 25);
+        assert.equal(getAverageSalesPerProduct({ category_stats: { sale_qty: 10, sale_product_qty: 0 } }), 0);
+        assert.equal(getAverageSalesPerProduct(null), 0);
     });
 });
