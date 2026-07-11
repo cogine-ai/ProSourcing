@@ -24,6 +24,15 @@ is_docker = (
     os.getenv("ENV_MOD") == "production"
 )
 
+from api.task_filters import (
+    category_code_variants,
+    contains_chinese,
+    expand_status_filters,
+    get_task_valid_product_count,
+    normalize_category_code,
+    normalize_up_categories,
+    parse_task_timestamp,
+)
 from core.final_pipeline import run_scoring_and_export
 from core.scoring import ScoringEngine, DEFAULT_CONFIG
 # from deep_translator import GoogleTranslator
@@ -74,48 +83,8 @@ def _start_top_category_stats_refresh():
     return True
 
 
-def _get_task_valid_product_count(task):
-    stats = task.get("category_stats") or {}
-    if isinstance(stats, str):
-        try:
-            stats = json.loads(stats)
-        except json.JSONDecodeError:
-            stats = {}
-
-    for key in ("valid_product_count", "valid_product_qty"):
-        value = stats.get(key)
-        if value is None:
-            continue
-        try:
-            return int(float(str(value).replace(",", "").strip() or 0))
-        except (TypeError, ValueError):
-            continue
-
-    return 0
-
-
-def _normalize_category_code(category_id):
-    raw = str(category_id or "").strip()
-    if not raw:
-        return ""
-    return raw.zfill(5) if raw.isdigit() else raw
-
-
-def _category_code_variants(category_id):
-    raw = str(category_id or "").strip()
-    if not raw:
-        return []
-
-    variants = []
-    for candidate in (raw, raw.zfill(5) if raw.isdigit() else raw, raw.lstrip("0") or "0"):
-        candidate = str(candidate).strip()
-        if candidate and candidate not in variants:
-            variants.append(candidate)
-    return variants
-
-
 def _sync_last_crawl_date(category_id, crawl_date=None):
-    normalized_code = _normalize_category_code(category_id)
+    normalized_code = normalize_category_code(category_id)
     if not normalized_code:
         return False
 
@@ -133,7 +102,7 @@ def _sync_last_crawl_date(category_id, crawl_date=None):
     ).execute()
 
     updated = False
-    for candidate in _category_code_variants(category_id):
+    for candidate in category_code_variants(category_id):
         try:
             res = (
                 sb.table("algatop_categories_master")
@@ -147,99 +116,6 @@ def _sync_last_crawl_date(category_id, crawl_date=None):
         except Exception:
             continue
     return updated
-
-
-def _extract_category_aliases(category_value):
-    aliases = set()
-    if category_value is None:
-        return aliases
-
-    if isinstance(category_value, str):
-        value = category_value.strip()
-        if not value:
-            return aliases
-        aliases.add(value)
-        if " (" in value and value.endswith(")"):
-            main_part, _, tail = value.partition(" (")
-            aliases.add(main_part.strip())
-            aliases.add(tail[:-1].strip())
-        return {alias for alias in aliases if alias}
-
-    if isinstance(category_value, dict):
-        for key in ("category_name", "name_ru", "name_cn", "category_cn", "name"):
-            value = category_value.get(key)
-            if isinstance(value, str) and value.strip():
-                aliases.update(_extract_category_aliases(value))
-        return aliases
-
-    return aliases
-
-
-def _contains_chinese(text):
-    return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
-
-
-def _normalize_up_categories(up_categories):
-    if not up_categories:
-        return []
-
-    if isinstance(up_categories, str):
-        raw = up_categories.strip()
-        if not raw:
-            return []
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                return parsed
-            if parsed:
-                return [parsed]
-        except json.JSONDecodeError:
-            return [raw]
-
-    if isinstance(up_categories, list):
-        return up_categories
-
-    return [up_categories]
-
-
-def _task_matches_top_category(task, top_category):
-    target_aliases = _extract_category_aliases(top_category)
-    if not target_aliases:
-        return True
-
-    task_path = _normalize_up_categories(task.get("up_categories")) or _resolve_task_up_categories(task)
-    for item in task_path:
-        if _extract_category_aliases(item) & target_aliases:
-            return True
-
-    return False
-
-
-RUNNING_TASK_STATUSES = {"pending", "scraping", "crawling", "reporting", "processing", "retrying"}
-
-
-def _expand_status_filters(status_filters):
-    if not status_filters:
-        return []
-
-    if isinstance(status_filters, str):
-        raw_filters = [status_filters]
-    else:
-        raw_filters = list(status_filters)
-
-    expanded = []
-    for item in raw_filters:
-        normalized = (item or "").strip().lower()
-        if not normalized or normalized == "all":
-            continue
-        if normalized == "pending":
-            for running_status in RUNNING_TASK_STATUSES:
-                if running_status not in expanded:
-                    expanded.append(running_status)
-            continue
-        if normalized not in expanded:
-            expanded.append(normalized)
-    return expanded
 
 
 @lru_cache(maxsize=1024)
@@ -278,7 +154,7 @@ def _analysis_tasks_has_updated_at():
 
 
 def _resolve_task_up_categories(task):
-    normalized_existing = _normalize_up_categories(task.get("up_categories"))
+    normalized_existing = normalize_up_categories(task.get("up_categories"))
     has_cn_label = any(
         (
             isinstance(item, dict)
@@ -338,37 +214,10 @@ def _enrich_task_metadata(task):
     raw_category = str(task.get("category") or "").strip()
     leaf_category = task_path[-1] if task_path else None
     leaf_name_cn = str((leaf_category or {}).get("name_cn") or (leaf_category or {}).get("category_name") or "").strip()
-    if leaf_name_cn and (not raw_category or not _contains_chinese(raw_category)):
+    if leaf_name_cn and (not raw_category or not contains_chinese(raw_category)):
         task["category"] = leaf_name_cn
 
     return task
-
-
-def _parse_task_timestamp(value):
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    if raw.endswith("Z"):
-        raw = raw[:-1] + "+00:00"
-    try:
-        return datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-
-
-def _task_matches_days(task, days):
-    if not days or days <= 0:
-        return True
-    created_at = _parse_task_timestamp(task.get("created_at"))
-    if not created_at:
-        return False
-    return created_at >= (datetime.now(created_at.tzinfo) - timedelta(days=days))
-
-
-def _task_matches_status_filters(task, expanded_statuses):
-    if not expanded_statuses:
-        return True
-    return (task.get("status") or "").strip().lower() in expanded_statuses
 
 
 def _build_initial_up_categories(category_id: str):
@@ -486,7 +335,7 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
         # 兼容 ISO 格式
         query = query.gte("created_at", after.isoformat())
         
-    expanded_statuses = _expand_status_filters(status)
+    expanded_statuses = expand_status_filters(status)
     if len(expanded_statuses) == 1:
         query = query.eq("status", expanded_statuses[0])
     elif len(expanded_statuses) > 1:
@@ -508,7 +357,7 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
             all_res = query.select("*").order("created_at", desc=True).range(fetch_offset, fetch_offset + batch_size - 1).execute()
             batch = all_res.data or []
             for t in batch:
-                if _get_task_valid_product_count(t) <= 0:
+                if get_task_valid_product_count(t) <= 0:
                     continue
                 if not t.get('duration') and t['status'] == 'completed':
                     try:
@@ -1062,14 +911,14 @@ def recover_interrupted_tasks(req: RecoverInterruptedTasksRequest, background_ta
 
     matched = []
     for task in res.data or []:
-        activity_time = _parse_task_timestamp(task.get("updated_at")) or _parse_task_timestamp(task.get("created_at"))
+        activity_time = parse_task_timestamp(task.get("updated_at")) or parse_task_timestamp(task.get("created_at"))
         if activity_time and activity_time > stale_before:
             continue
         matched.append(task)
 
     matched.sort(
         key=lambda task: (
-            _parse_task_timestamp(task.get("updated_at")) or _parse_task_timestamp(task.get("created_at")) or datetime.min
+            parse_task_timestamp(task.get("updated_at")) or parse_task_timestamp(task.get("created_at")) or datetime.min
         )
     )
 
@@ -1449,7 +1298,7 @@ def get_kaspi_global_tree_v4():
             return []
 
         leaf_ids = {
-            _normalize_category_code(c.get("category_id"))
+            normalize_category_code(c.get("category_id"))
             for c in all_cats
             if c.get("is_leaf")
         }
@@ -1482,7 +1331,7 @@ def get_kaspi_global_tree_v4():
                     {
                         candidate
                         for code in missing_leaf_ids
-                        for candidate in _category_code_variants(code)
+                        for candidate in category_code_variants(code)
                     }
                 )
                 res_tasks = (
@@ -1494,7 +1343,7 @@ def get_kaspi_global_tree_v4():
                     .execute()
                 )
                 for row in (res_tasks.data or []):
-                    code_raw = _normalize_category_code(row.get("category_id"))
+                    code_raw = normalize_category_code(row.get("category_id"))
                     dt = str(row.get("updated_at") or row.get("created_at") or "").strip()
                     if not code_raw or not dt:
                         continue
@@ -1517,7 +1366,7 @@ def get_kaspi_global_tree_v4():
             aid = id_to_aid.get(orig_code) or orig_code
             paid = id_to_aid.get(pid_code) or pid_code
             
-            normalized_code = _normalize_category_code(aid)
+            normalized_code = normalize_category_code(aid)
             node = {
                 "category_code": aid,
                 "title": c.get("name_cn") or c.get("name_ru") or aid,
