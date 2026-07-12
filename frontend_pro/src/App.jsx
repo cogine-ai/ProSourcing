@@ -13,6 +13,7 @@ import {
     buildCategoryNameLookup,
     buildReportPagination,
     getCategoryDisplayName,
+    getMetricScore,
     getTopCategoryZhLabel,
     parsePreviewImage,
 } from './components/reports/reportUtils';
@@ -111,35 +112,8 @@ const App = () => {
     }, [allCategories]);
 
     // 统一评分逻辑：根据 algoConfig 计算
-    const getMetricScore = (metricKey, value, secondaryValue = null) => {
-        if (!algoConfig || !algoConfig[metricKey]) return 0;
-        const conf = algoConfig[metricKey];
-        const ranges = conf.ranges;
-        const scores = conf.scores;
-
-        if (metricKey === 'days_per_review') {
-            if (secondaryValue === 0 || secondaryValue === '--') return 0;
-            const ratio = value / secondaryValue;
-            for (let i = 0; i < ranges.length; i++) {
-                if (ratio <= ranges[i]) return scores[i];
-            }
-            return scores[scores.length - 1];
-        }
-
-        if (metricKey === 'price') {
-            if (value > ranges[0]) return scores[0];
-            for (let i = 1; i < ranges.length; i++) {
-                if (value >= ranges[i]) return scores[i];
-            }
-            return scores[scores.length - 1];
-        }
-
-        // 默认逻辑：阈值从高到低比较
-        for (let i = 0; i < ranges.length; i++) {
-            if (value >= ranges[i]) return scores[i];
-        }
-        return scores[scores.length - 1];
-    };
+    const scoreProductMetric = (metricKey, value, secondaryValue = null) =>
+        getMetricScore(algoConfig, metricKey, value, secondaryValue);
 
     const [expandedNodes, setExpandedNodes] = useState(new Set());
 
@@ -1089,11 +1063,11 @@ const App = () => {
                                                                             const getScore = (tp) => {
                                                                                 const raw = tp.products_raw_data || {};
                                                                                 const ld = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
-                                                                                return getMetricScore('monthly_sales', raw.sale_qty || 0) +
-                                                                                       getMetricScore('reviews', raw.review_qty || 0) +
-                                                                                       getMetricScore('price', raw.sale_price || 0) +
-                                                                                       getMetricScore('days_per_review', ld, raw.review_qty || 0) +
-                                                                                       getMetricScore('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0);
+                                                                                return scoreProductMetric('monthly_sales', raw.sale_qty || 0) +
+                                                                                       scoreProductMetric('reviews', raw.review_qty || 0) +
+                                                                                       scoreProductMetric('price', raw.sale_price || 0) +
+                                                                                       scoreProductMetric('days_per_review', ld, raw.review_qty || 0) +
+                                                                                       scoreProductMetric('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0);
                                                                             };
                                                                             return getScore(b) - getScore(a);
                                                                         })
@@ -1130,7 +1104,7 @@ const App = () => {
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">销量</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-sm font-black text-emerald-500 font-mono leading-none">
-                                                                                                +{getMetricScore('monthly_sales', raw.sale_qty || 0).toFixed(1)}
+                                                                                                +{scoreProductMetric('monthly_sales', raw.sale_qty || 0).toFixed(1)}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1">{raw.sale_qty || 0}</span>
                                                                                         </div>
@@ -1140,7 +1114,7 @@ const App = () => {
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">评论</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-sm font-black text-amber-500 font-mono leading-none">
-                                                                                                +{getMetricScore('reviews', raw.review_qty || 0).toFixed(1)}
+                                                                                                +{scoreProductMetric('reviews', raw.review_qty || 0).toFixed(1)}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1">{raw.review_qty || 0}</span>
                                                                                         </div>
@@ -1150,7 +1124,7 @@ const App = () => {
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">售价</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-sm font-black text-blue-500 font-mono leading-none">
-                                                                                                +{getMetricScore('price', raw.sale_price || 0).toFixed(1)}
+                                                                                                +{scoreProductMetric('price', raw.sale_price || 0).toFixed(1)}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1 truncate">{raw.sale_price?.toLocaleString() || 0} ₸</span>
                                                                                         </div>
@@ -1160,7 +1134,7 @@ const App = () => {
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">天数/评论</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-sm font-black text-rose-500 font-mono leading-none">
-                                                                                                +{getMetricScore('days_per_review', listedDays, raw.review_qty || 0).toFixed(1)}
+                                                                                                +{scoreProductMetric('days_per_review', listedDays, raw.review_qty || 0).toFixed(1)}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1 leading-tight">
                                                                                                 {listedDays} / {raw.review_qty || 0}
@@ -1174,7 +1148,7 @@ const App = () => {
                                                                                         <span className="text-[10px] text-muted-foreground font-bold mb-1 uppercase tracking-tighter shrink-0">销品比</span>
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-sm font-black text-violet-500 dark:text-violet-400 font-mono leading-none">
-                                                                                                +{getMetricScore('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0).toFixed(1)}
+                                                                                                +{scoreProductMetric('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0).toFixed(1)}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-bold text-muted-foreground/40 font-mono mt-1 leading-tight">
                                                                                                 {selectedTask?.category_stats?.sale_qty || 0} / {selectedTask?.category_stats?.sale_product_qty || 0}
@@ -1190,11 +1164,11 @@ const App = () => {
                                                                                         <div className="flex-1 flex flex-col justify-center">
                                                                                             <span className="text-2xl font-black text-primary font-mono leading-none">
                                                                                                 {(
-                                                                                                    getMetricScore('monthly_sales', raw.sale_qty || 0) +
-                                                                                                    getMetricScore('reviews', raw.review_qty || 0) +
-                                                                                                    getMetricScore('price', raw.sale_price || 0) +
-                                                                                                    getMetricScore('days_per_review', listedDays, raw.review_qty || 0) +
-                                                                                                    getMetricScore('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0)
+                                                                                                    scoreProductMetric('monthly_sales', raw.sale_qty || 0) +
+                                                                                                    scoreProductMetric('reviews', raw.review_qty || 0) +
+                                                                                                    scoreProductMetric('price', raw.sale_price || 0) +
+                                                                                                    scoreProductMetric('days_per_review', listedDays, raw.review_qty || 0) +
+                                                                                                    scoreProductMetric('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0)
                                                                                                 ).toFixed(1)}
                                                                                             </span>
                                                                                         </div>
@@ -1423,11 +1397,11 @@ const App = () => {
                                                                             const getScore = (tp) => {
                                                                                 const raw = tp.products_raw_data || {};
                                                                                 const ld = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
-                                                                                return getMetricScore('monthly_sales', raw.sale_qty || 0) +
-                                                                                       getMetricScore('reviews', raw.review_qty || 0) +
-                                                                                       getMetricScore('price', raw.sale_price || 0) +
-                                                                                       getMetricScore('days_per_review', ld, raw.review_qty || 0) +
-                                                                                       getMetricScore('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0);
+                                                                                return scoreProductMetric('monthly_sales', raw.sale_qty || 0) +
+                                                                                       scoreProductMetric('reviews', raw.review_qty || 0) +
+                                                                                       scoreProductMetric('price', raw.sale_price || 0) +
+                                                                                       scoreProductMetric('days_per_review', ld, raw.review_qty || 0) +
+                                                                                       scoreProductMetric('avg_sales', selectedTask?.category_stats?.sale_qty / selectedTask?.category_stats?.sale_product_qty || 0);
                                                                             };
                                                                             return getScore(b) - getScore(a);
                                                                         })
