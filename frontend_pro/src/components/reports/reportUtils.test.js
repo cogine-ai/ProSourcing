@@ -8,6 +8,7 @@ import {
     getAverageSalesPerProduct,
     getCategoryDisplayName,
     getListedDays,
+    getMetricScore,
     getTaskDurationLabel,
     getTopCategoryZhLabel,
     isHighQualityProduct,
@@ -246,5 +247,48 @@ describe('filterTaskProducts and average sales', () => {
         assert.equal(getAverageSalesPerProduct({ category_stats: { sale_qty: 100, sale_product_qty: 4 } }), 25);
         assert.equal(getAverageSalesPerProduct({ category_stats: { sale_qty: 10, sale_product_qty: 0 } }), 0);
         assert.equal(getAverageSalesPerProduct(null), 0);
+    });
+});
+
+const sampleAlgoConfig = {
+    monthly_sales: {
+        ranges: [1000, 601, 401, 201, 101, 60],
+        scores: [10, 8, 6, 4, 2, 1, 0],
+    },
+    reviews: {
+        ranges: [400, 200, 100, 50, 15],
+        scores: [3, 2, 1.5, 1, 0.5, 0],
+    },
+    price: {
+        ranges: [8000, 3000, 1500],
+        scores: [0, 1, 0.5, 0],
+    },
+    days_per_review: {
+        ranges: [0.5, 1, 2, 2.5],
+        scores: [10, 5, 3, 1, 0],
+    },
+    avg_sales: {
+        ranges: [80, 50, 30, 15],
+        scores: [4, 3, 2, 1, 0],
+    },
+};
+
+describe('getMetricScore', () => {
+    it('returns zero when config is missing', () => {
+        assert.equal(getMetricScore(null, 'monthly_sales', 500), 0);
+        assert.equal(getMetricScore(sampleAlgoConfig, 'unknown_metric', 100), 0);
+    });
+
+    it('scores threshold metrics from high to low', () => {
+        assert.equal(getMetricScore(sampleAlgoConfig, 'monthly_sales', 1000), 10);
+        assert.equal(getMetricScore(sampleAlgoConfig, 'monthly_sales', 700), 8);
+        assert.equal(getMetricScore(sampleAlgoConfig, 'monthly_sales', 10), 0);
+    });
+
+    it('uses inverted price bands and guards zero-review ratios', () => {
+        assert.equal(getMetricScore(sampleAlgoConfig, 'price', 9000), 0);
+        assert.equal(getMetricScore(sampleAlgoConfig, 'price', 3500), 1);
+        assert.equal(getMetricScore(sampleAlgoConfig, 'days_per_review', 30, 0), 0);
+        assert.equal(getMetricScore(sampleAlgoConfig, 'days_per_review', 20, 10), 3);
     });
 });
