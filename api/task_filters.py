@@ -172,3 +172,43 @@ def task_matches_status_filters(task, expanded_statuses):
     if not expanded_statuses:
         return True
     return (task.get("status") or "").strip().lower() in expanded_statuses
+
+
+def apply_top_category_overrides(
+    payload,
+    top_category_id=None,
+    top_category_name_cn=None,
+    top_category_name_ru=None,
+):
+    if top_category_id:
+        payload["top_category_id"] = str(top_category_id)
+    if top_category_name_cn:
+        payload["top_category_name_cn"] = str(top_category_name_cn)
+    if top_category_name_ru:
+        payload["top_category_name_ru"] = str(top_category_name_ru)
+    return payload
+
+
+def enrich_task_display_fields(task, task_path):
+    """Apply display metadata from a resolved up_categories path (pure helper)."""
+    if task_path:
+        task["up_categories"] = task_path
+        top_category = task_path[0]
+        task["top_category_label"] = (
+            top_category.get("name_cn")
+            or top_category.get("category_name")
+            or top_category.get("name_ru")
+            or "一级分类"
+        )
+    else:
+        task["top_category_label"] = None
+
+    raw_category = str(task.get("category") or "").strip()
+    leaf_category = task_path[-1] if task_path else None
+    leaf_name_cn = str(
+        (leaf_category or {}).get("name_cn") or (leaf_category or {}).get("category_name") or ""
+    ).strip()
+    if leaf_name_cn and (not raw_category or not contains_chinese(raw_category)):
+        task["category"] = leaf_name_cn
+
+    return task
