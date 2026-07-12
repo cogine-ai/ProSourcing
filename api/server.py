@@ -25,8 +25,9 @@ is_docker = (
 )
 
 from api.task_filters import (
+    apply_top_category_overrides,
     category_code_variants,
-    contains_chinese,
+    enrich_task_display_fields,
     expand_status_filters,
     get_task_valid_product_count,
     normalize_category_code,
@@ -205,19 +206,7 @@ def _resolve_task_up_categories(task):
 
 def _enrich_task_metadata(task):
     task_path = _resolve_task_up_categories(task)
-    if task_path:
-        task["up_categories"] = task_path
-        top_category = task_path[0]
-        task["top_category_label"] = top_category.get("name_cn") or top_category.get("category_name") or top_category.get("name_ru") or "一级分类"
-    else:
-        task["top_category_label"] = None
-    raw_category = str(task.get("category") or "").strip()
-    leaf_category = task_path[-1] if task_path else None
-    leaf_name_cn = str((leaf_category or {}).get("name_cn") or (leaf_category or {}).get("category_name") or "").strip()
-    if leaf_name_cn and (not raw_category or not contains_chinese(raw_category)):
-        task["category"] = leaf_name_cn
-
-    return task
+    return enrich_task_display_fields(task, task_path)
 
 
 def _build_initial_up_categories(category_id: str):
@@ -245,15 +234,6 @@ def _build_task_insert_payload(category_id: str, display_title: str):
         payload["up_categories"] = json.dumps(initial_up_categories, ensure_ascii=False)
     return payload
 
-
-def _apply_top_category_overrides(payload, top_category_id=None, top_category_name_cn=None, top_category_name_ru=None):
-    if top_category_id:
-        payload["top_category_id"] = str(top_category_id)
-    if top_category_name_cn:
-        payload["top_category_name_cn"] = str(top_category_name_cn)
-    if top_category_name_ru:
-        payload["top_category_name_ru"] = str(top_category_name_ru)
-    return payload
 
 class TaskRequest(BaseModel):
     category: str
@@ -305,7 +285,7 @@ def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
         cat_name = res_master.data[0]['name_cn']
         
     task_data = _build_task_insert_payload(category_id, cat_name)
-    task_data = _apply_top_category_overrides(
+    task_data = apply_top_category_overrides(
         task_data,
         req.top_category_id,
         req.top_category_name_cn,
@@ -1006,7 +986,7 @@ def create_category_task(req: TaskRequest, background_tasks: BackgroundTasks):
             display_title = res_master.data[0]['name_cn']
 
     task_data = _build_task_insert_payload(category_id, display_title)
-    task_data = _apply_top_category_overrides(
+    task_data = apply_top_category_overrides(
         task_data,
         req.top_category_id,
         req.top_category_name_cn,
@@ -1514,7 +1494,7 @@ def create_kaspi_tasks_batch(items = Body(...), background_tasks: BackgroundTask
             display_name = code_map.get(str(code), str(code))
             payload_item = _build_task_insert_payload(str(code), display_name)
             payload.append(
-                _apply_top_category_overrides(
+                apply_top_category_overrides(
                     payload_item,
                     item.get("top_category_id"),
                     item.get("top_category_name_cn"),
