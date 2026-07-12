@@ -2,8 +2,10 @@ import pytest
 from datetime import datetime
 
 from api.task_filters import (
+    apply_top_category_overrides,
     category_code_variants,
     contains_chinese,
+    enrich_task_display_fields,
     expand_status_filters,
     extract_category_aliases,
     filter_tasks_with_valid_products,
@@ -211,3 +213,48 @@ def test_task_matches_days_uses_injected_now():
 )
 def test_task_matches_status_filters(task, expanded, expected):
     assert task_matches_status_filters(task, expanded) is expected
+
+
+def test_apply_top_category_overrides_only_sets_provided_fields():
+    payload = {"category": "Phones", "top_category_id": "1"}
+    result = apply_top_category_overrides(
+        payload,
+        top_category_id="99",
+        top_category_name_cn="手机",
+    )
+    assert result["top_category_id"] == "99"
+    assert result["top_category_name_cn"] == "手机"
+    assert "top_category_name_ru" not in result
+
+
+def test_apply_top_category_overrides_coerces_values_to_strings():
+    payload = {}
+    apply_top_category_overrides(payload, top_category_id=246, top_category_name_ru="Телефоны")
+    assert payload["top_category_id"] == "246"
+    assert payload["top_category_name_ru"] == "Телефоны"
+
+
+def test_enrich_task_display_fields_sets_top_label_and_leaf_category():
+    task = {"category": "Phones"}
+    task_path = [
+        {"name_cn": "手机", "name_ru": "Phones"},
+        {"name_cn": "配件", "category_name": "Accessories"},
+    ]
+    enrich_task_display_fields(task, task_path)
+    assert task["top_category_label"] == "手机"
+    assert task["category"] == "配件"
+    assert task["up_categories"] == task_path
+
+
+def test_enrich_task_display_fields_keeps_chinese_category():
+    task = {"category": "无人机"}
+    task_path = [{"name_cn": "数码"}, {"name_cn": "无人机"}]
+    enrich_task_display_fields(task, task_path)
+    assert task["category"] == "无人机"
+
+
+def test_enrich_task_display_fields_handles_empty_path():
+    task = {"category": "Phones"}
+    enrich_task_display_fields(task, [])
+    assert task["top_category_label"] is None
+    assert task["category"] == "Phones"
