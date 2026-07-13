@@ -258,3 +258,26 @@ def test_enrich_task_display_fields_handles_empty_path():
     enrich_task_display_fields(task, [])
     assert task["top_category_label"] is None
     assert task["category"] == "Phones"
+
+
+def test_filter_tasks_with_valid_products_preserves_order():
+    tasks = [
+        {"id": "first", "category_stats": {"valid_product_count": 1}},
+        {"id": "skip", "category_stats": {"valid_product_count": 0}},
+        {"id": "second", "category_stats": {"valid_product_qty": 2}},
+    ]
+    assert [t["id"] for t in filter_tasks_with_valid_products(tasks)] == ["first", "second"]
+
+
+@pytest.mark.parametrize(
+    "top_category,expected",
+    [
+        ("", True),
+        (None, True),
+        ("手机", True),
+        ("家电", False),
+    ],
+)
+def test_task_matches_top_category_empty_target_matches_all(top_category, expected):
+    task = {"up_categories": [{"name_cn": "手机"}]}
+    assert task_matches_top_category(task, top_category) is expected
