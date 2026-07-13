@@ -94,6 +94,14 @@ describe('sortTaskProducts listed-day ordering', () => {
         assert.equal(sorted[0], newer);
         assert.equal(sorted[1], older);
     });
+
+    it('sorts by sales and amount descending', () => {
+        const low = { products_raw_data: { sale_qty: 10, sale_amount: 100 } };
+        const high = { products_raw_data: { sale_qty: 50, sale_amount: 500 } };
+
+        assert.equal(sortTaskProducts([low, high], 'sales', scoreStub, null)[0], high);
+        assert.equal(sortTaskProducts([low, high], 'amount', scoreStub, null)[0], high);
+    });
 });
 
 describe('getTaskDurationLabel', () => {
@@ -147,6 +155,38 @@ describe('category display helpers', () => {
             up_categories: JSON.stringify([{ category_name: 'Phones (手机)' }]),
         };
         assert.equal(getTopCategoryZhLabel(task), '手机');
+    });
+
+    it('prefers explicit top category fields over parsed path', () => {
+        assert.equal(
+            getTopCategoryZhLabel({
+                top_category_name_cn: '数码',
+                top_category_label: '家电',
+                up_categories: [{ category_name: 'Phones (手机)' }],
+            }),
+            '数码',
+        );
+        assert.equal(
+            getTopCategoryZhLabel({
+                top_category_label: '家电',
+                up_categories: [{ category_name: 'Phones (手机)' }],
+            }),
+            '家电',
+        );
+    });
+
+    it('treats malformed up_categories strings as empty (safe JSON parse)', () => {
+        assert.equal(getTopCategoryZhLabel({ up_categories: 'not-json' }), '一级分类');
+        assert.equal(getTopCategoryZhLabel({ up_categories: ' 123 ' }), '一级分类');
+        assert.equal(getTopCategoryZhLabel({ up_categories: '' }), '一级分类');
+    });
+
+    it('resolves RPA-prefixed category names', () => {
+        assert.equal(getCategoryDisplayName({ category_name: 'RPA采集_无人机' }), '无人机');
+        assert.equal(
+            getCategoryDisplayName({ category_name: 'RPA采集_配件(无人机)' }),
+            '无人机',
+        );
     });
 });
 
@@ -289,6 +329,7 @@ describe('getMetricScore', () => {
         assert.equal(getMetricScore(sampleAlgoConfig, 'price', 9000), 0);
         assert.equal(getMetricScore(sampleAlgoConfig, 'price', 3500), 1);
         assert.equal(getMetricScore(sampleAlgoConfig, 'days_per_review', 30, 0), 0);
+        assert.equal(getMetricScore(sampleAlgoConfig, 'days_per_review', 30, '--'), 0);
         assert.equal(getMetricScore(sampleAlgoConfig, 'days_per_review', 20, 10), 3);
     });
 });
