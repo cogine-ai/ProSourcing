@@ -10,6 +10,7 @@ import {
     getListedDays,
     getMetricScore,
     getTaskDurationLabel,
+    getTaskProductScore,
     getTopCategoryZhLabel,
     isHighQualityProduct,
     parsePreviewImage,
@@ -331,5 +332,75 @@ describe('getMetricScore', () => {
         assert.equal(getMetricScore(sampleAlgoConfig, 'days_per_review', 30, 0), 0);
         assert.equal(getMetricScore(sampleAlgoConfig, 'days_per_review', 30, '--'), 0);
         assert.equal(getMetricScore(sampleAlgoConfig, 'days_per_review', 20, 10), 3);
+    });
+});
+
+describe('getTaskProductScore and score-based sorting', () => {
+    const realDateNow = Date.now;
+
+    after(() => {
+        Date.now = realDateNow;
+    });
+
+    const scoreFn = (metricKey, value, secondaryValue = null) =>
+        getMetricScore(sampleAlgoConfig, metricKey, value, secondaryValue);
+
+    const selectedTask = {
+        category_stats: { sale_qty: 400, sale_product_qty: 4 },
+    };
+
+    it('aggregates weighted metric scores for a product', () => {
+        Date.now = () => new Date('2026-05-30T00:00:00Z').getTime();
+
+        const product = {
+            products_raw_data: {
+                created_dt: '2026-05-20T00:00:00',
+                sale_qty: 1000,
+                review_qty: 400,
+                sale_price: 3500,
+            },
+        };
+
+        const expected =
+            getMetricScore(sampleAlgoConfig, 'monthly_sales', 1000)
+            + getMetricScore(sampleAlgoConfig, 'reviews', 400)
+            + getMetricScore(sampleAlgoConfig, 'price', 3500)
+            + getMetricScore(sampleAlgoConfig, 'days_per_review', 10, 400)
+            + getMetricScore(sampleAlgoConfig, 'avg_sales', 100);
+
+        assert.equal(getTaskProductScore(product, scoreFn, selectedTask), expected);
+    });
+
+    it('sorts by composite score descending by default', () => {
+        Date.now = () => new Date('2026-05-30T00:00:00Z').getTime();
+
+        const low = {
+            products_raw_data: {
+                created_dt: '2026-05-20T00:00:00',
+                sale_qty: 10,
+                review_qty: 1,
+                sale_price: 9000,
+            },
+        };
+        const high = {
+            products_raw_data: {
+                created_dt: '2026-05-20T00:00:00',
+                sale_qty: 1000,
+                review_qty: 400,
+                sale_price: 3500,
+            },
+        };
+
+        const sorted = sortTaskProducts([low, high], 'score', scoreFn, selectedTask);
+        assert.equal(sorted[0], high);
+        assert.equal(sorted[1], low);
+    });
+
+    it('sorts price_asc from lowest to highest', () => {
+        const cheap = { products_raw_data: { sale_price: 1000 } };
+        const expensive = { products_raw_data: { sale_price: 9000 } };
+
+        const sorted = sortTaskProducts([expensive, cheap], 'price_asc', scoreFn, selectedTask);
+        assert.deepEqual(sorted, [cheap, expensive]);
     });
 });
