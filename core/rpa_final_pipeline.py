@@ -13,6 +13,7 @@ load_dotenv()
 # 设置项目根目录
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.scoring import ScoringEngine
+from core.rpa_category_id import resolve_niche_category_id
 import concurrent.futures
 
 # ==========================================
@@ -132,7 +133,7 @@ def process_rpa_data(task_id=None, input_file=None):
 
     if not products:
         print("[ERROR] 商品列表为空，请检查采集环节。")
-        return
+        sys.exit(1)
 
     # 翻译商品名称 (哥，客户现场环境可能没网，暂时注掉)
     # from deep_translator import GoogleTranslator
@@ -162,7 +163,7 @@ def process_rpa_data(task_id=None, input_file=None):
         new_task_data = {
             "category": f"RPA采集_{niche_stats.get('category_name', '未知')}_{datetime.now().strftime('%m%d_%H%M')}",
             "status": "completed",
-            "category_id": niche_stats.get("category_id"),
+            "category_id": resolve_niche_category_id(niche_stats),
             "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
             "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
             "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False)
@@ -348,7 +349,7 @@ def process_rpa_data(task_id=None, input_file=None):
                 
                 # 更新 Task 汇总信息
                 final_update = {
-                    "category_id": niche_stats.get("category_id"),
+                    "category_id": resolve_niche_category_id(niche_stats),
                     "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
                     "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
                     "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False),
@@ -367,11 +368,11 @@ def process_rpa_data(task_id=None, input_file=None):
                 for i in range(0, len(raw_payloads), BATCH_SIZE):
                     raw_chunk = raw_payloads[i:i + BATCH_SIZE]
                     calc_chunk = calc_payloads[i:i + BATCH_SIZE]
-                    supabase.table("products_raw_data").upsert(raw_chunk).execute()
-                    supabase.table("products_calculated_metrics").upsert(calc_chunk).execute()
+                    supabase.table("products_raw_data").upsert(raw_chunk, on_conflict="sku,task_id").execute()
+                    supabase.table("products_calculated_metrics").upsert(calc_chunk, on_conflict="sku,task_id").execute()
                 
                 final_update = {
-                    "category_id": niche_stats.get("category_ext_id"),
+                    "category_id": resolve_niche_category_id(niche_stats),
                     "category_stats": json_safe(niche_stats),
                     "trend_data": json_safe(trend),
                     "up_categories": json_safe(niche_stats.get("up_categories_json")),
@@ -381,6 +382,7 @@ def process_rpa_data(task_id=None, input_file=None):
                 print(f"[SUCCESS] Supabase 同步完成！")
         except Exception as e:
             print(f"[ERROR] 数据库同步失败: {e}")
+            sys.exit(1)
 
     # 3. 产生 Excel 报告
     processed_results.sort(key=lambda x: x['total_score'], reverse=True)
@@ -493,8 +495,15 @@ def process_rpa_data(task_id=None, input_file=None):
         return output_path
     except Exception as e:
         print(f"[ERROR] Excel 导出失败: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     tid = sys.argv[1] if len(sys.argv) > 1 else None
     ifile = sys.argv[2] if len(sys.argv) > 2 else None
-    process_rpa_data(tid, ifile)
+    try:
+        process_rpa_data(tid, ifile)
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Reporting pipeline failed: {e}")
+        sys.exit(1)
