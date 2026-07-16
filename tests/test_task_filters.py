@@ -281,3 +281,15 @@ def test_filter_tasks_with_valid_products_preserves_order():
 def test_task_matches_top_category_empty_target_matches_all(top_category, expected):
     task = {"up_categories": [{"name_cn": "手机"}]}
     assert task_matches_top_category(task, top_category) is expected
+
+
+def test_filter_tasks_with_valid_products_matches_hide_zero_semantics():
+    """Regression: PR #55 hide_zero uses the same valid-product threshold."""
+    tasks = [
+        {"id": "visible", "category_stats": '{"valid_product_qty": "1,000"}'},
+        {"id": "hidden-json", "category_stats": '{"valid_product_count": 0}'},
+        {"id": "hidden-missing", "category_stats": {}},
+        {"id": "visible-float", "category_stats": {"valid_product_count": "  3.0  "}},
+    ]
+    visible_ids = [t["id"] for t in filter_tasks_with_valid_products(tasks)]
+    assert visible_ids == ["visible", "visible-float"]
