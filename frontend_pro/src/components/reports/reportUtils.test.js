@@ -48,6 +48,24 @@ describe('buildReportPagination', () => {
             [1, 'ellipsis-left', 4, 5, 6, 'ellipsis-right', 10],
         );
     });
+
+    it('shows a leading ellipsis window near the first pages', () => {
+        assert.deepEqual(
+            buildReportPagination(2, 10),
+            [1, 2, 3, 4, 5, 'ellipsis-right', 10],
+        );
+    });
+
+    it('clamps invalid current page values to page 1', () => {
+        assert.deepEqual(
+            buildReportPagination(0, 10),
+            [1, 2, 3, 4, 5, 'ellipsis-right', 10],
+        );
+        assert.deepEqual(
+            buildReportPagination(-5, 10),
+            [1, 2, 3, 4, 5, 'ellipsis-right', 10],
+        );
+    });
 });
 
 describe('getListedDays', () => {
@@ -102,6 +120,15 @@ describe('sortTaskProducts listed-day ordering', () => {
 
         assert.equal(sortTaskProducts([low, high], 'sales', scoreStub, null)[0], high);
         assert.equal(sortTaskProducts([low, high], 'amount', scoreStub, null)[0], high);
+    });
+
+    it('sorts reviews descending', () => {
+        const few = { products_raw_data: { review_qty: 5 } };
+        const many = { products_raw_data: { review_qty: 50 } };
+
+        const sorted = sortTaskProducts([few, many], 'reviews', scoreStub, null);
+        assert.equal(sorted[0], many);
+        assert.equal(sorted[1], few);
     });
 });
 
