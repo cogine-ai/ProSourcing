@@ -24,6 +24,7 @@ is_docker = (
     os.getenv("ENV_MOD") == "production"
 )
 
+from api.category_tree_utils import mark_tree_leaves, structural_leaf_codes_from_p_map
 from core.final_pipeline import run_scoring_and_export
 from core.scoring import ScoringEngine, DEFAULT_CONFIG
 # from deep_translator import GoogleTranslator
@@ -1448,10 +1449,32 @@ def get_kaspi_global_tree_v4():
         if not all_cats:
             return []
 
+        # 哥，建立一个 category_id -> algatop_id 的映射，确保树结构的 ID 全是数字
+        id_to_aid = {str(c.get("category_id") or "").strip(): str(c.get("algatop_id") or "").strip() for c in all_cats}
+
+        p_map = {}
+        for c in all_cats:
+            raw_pid = c.get("parent_category_id")
+            pid_code = str(raw_pid) if raw_pid and str(raw_pid).lower() != "none" else ""
+
+            orig_code = str(c.get("category_id") or "").strip()
+
+            # 优先使用 algatop_id (数字 ID)，如果没用再用 category_id 兜底
+            aid = id_to_aid.get(orig_code) or orig_code
+            paid = id_to_aid.get(pid_code) or pid_code
+
+            node = {
+                "category_code": aid,
+                "title": c.get("name_cn") or c.get("name_ru") or aid,
+                "parent_code": paid,
+                "is_leaf": False,
+                "last_crawl_date": None,
+            }
+            p_map.setdefault(paid, []).append(node)
+
         leaf_ids = {
-            _normalize_category_code(c.get("category_id"))
-            for c in all_cats
-            if c.get("is_leaf")
+            _normalize_category_code(code)
+            for code in structural_leaf_codes_from_p_map(p_map)
         }
         leaf_ids = {code for code in leaf_ids if code}
 
@@ -1503,38 +1526,19 @@ def get_kaspi_global_tree_v4():
             except Exception as e_tasks:
                 print(f"[TREE DATE TASK FALLBACK ERROR] {e_tasks}")
 
-        # 哥，建立一个 category_id -> algatop_id 的映射，确保树结构的 ID 全是数字
-        id_to_aid = {str(c.get("category_id") or "").strip(): str(c.get("algatop_id") or "").strip() for c in all_cats}
-
-        p_map = {}
-        for c in all_cats:
-            raw_pid = c.get("parent_category_id")
-            pid_code = str(raw_pid) if raw_pid and str(raw_pid).lower() != "none" else ""
-            
-            orig_code = str(c.get("category_id") or "").strip()
-            
-            # 优先使用 algatop_id (数字 ID)，如果没用再用 category_id 兜底
-            aid = id_to_aid.get(orig_code) or orig_code
-            paid = id_to_aid.get(pid_code) or pid_code
-            
-            normalized_code = _normalize_category_code(aid)
-            node = {
-                "category_code": aid,
-                "title": c.get("name_cn") or c.get("name_ru") or aid,
-                "parent_code": paid,
-                "is_leaf": bool(c.get("is_leaf", False)),
-                "last_crawl_date": date_map.get(normalized_code),
-            }
-            p_map.setdefault(paid, []).append(node)
+        for children in p_map.values():
+            for node in children:
+                node["last_crawl_date"] = date_map.get(_normalize_category_code(node["category_code"]))
 
         def build_tree(pid=""):
-            # 哥，这里 pid 也要映射一下
             children = p_map.get(pid, [])
             for child in children:
                 child["children"] = build_tree(child["category_code"])
             return children
 
-        return build_tree("")
+        tree = build_tree("")
+        mark_tree_leaves(tree)
+        return tree
     except Exception as e:
         print(f"[TREE API ERROR V4] {str(e)}")
         return []
@@ -1785,10 +1789,15 @@ def seed_database_on_startup():
                         display = f"{ru} ({cn})" if cn else ru
                         compat_payload.append({
                             "category_id": m['algatop_id'],
+                            "algatop_id": m['algatop_id'],
                             "category_name": display,
+                            "name_cn": cn,
+                            "name_ru": ru,
                             "monthly_sales": m.get("monthly_sales") or 0,
                             "parent_category_id": m.get("parent_id"),
-                            "is_top_level": m.get("level") == 1
+                            "level": m.get("level"),
+                            "is_leaf": bool(m.get("is_leaf", False)),
+                            "is_top_level": m.get("level") == 1,
                         })
                     
                     for i in range(0, len(compat_payload), 500):
