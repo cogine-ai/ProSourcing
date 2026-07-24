@@ -494,10 +494,6 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
 
     if top_category and top_category != 'all':
         query = query.eq("top_category_name_cn", top_category)
-        
-    if False and top_category and top_category != 'all':
-        # 通过 supabase jsonb 的包含查询过滤含有该大类名的节点
-        query = query.contains("up_categories", [{"category_name": top_category}])
     
     # 1. 获取满足条件的精确总数
     if hide_zero:
@@ -684,11 +680,6 @@ def get_products():
 async def get_index():
     with open(os.path.join(os.path.dirname(__file__), "index.html"), "r", encoding="utf-8") as f:
         return f.read()
-
-@app.post("/api/system/logs/cleanup")
-def cleanup_logs(days: int = 7):
-    """清理 N 天前的任务日志 (保留兼容性)"""
-    return clear_logs(LogCleanupRequest(days=days))
 
 # --- 系统管理 API ---
 
