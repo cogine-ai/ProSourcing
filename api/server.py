@@ -43,6 +43,44 @@ tasks_db = {}
 process_pool = {}
 browser_launch_lock = asyncio.Lock()
 top_category_stats_process = None
+DOWNLOAD_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output"))
+
+
+def _resolve_download_path(path: str) -> str:
+    if not path or not str(path).strip():
+        raise HTTPException(status_code=400, detail="Missing download path")
+
+    requested = os.path.abspath(os.path.normpath(path))
+    root = os.path.abspath(DOWNLOAD_ROOT)
+    try:
+        if os.path.commonpath([requested, root]) != root:
+            raise HTTPException(status_code=403, detail="Download path is not allowed")
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Download path is not allowed")
+
+    if not os.path.isfile(requested):
+        raise HTTPException(status_code=404, detail="File not found")
+    return requested
+
+
+def _terminate_process_tree(process):
+    if process is None or process.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                check=False,
+            )
+        else:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+    except Exception:
+        pass
 
 
 def _get_top_category_stats_script_path():
@@ -815,29 +853,24 @@ def clear_logs(req: LogCleanupRequest):
 
 @app.get("/api/download")
 async def download_file(path: str):
-    if os.path.exists(path):
-        return FileResponse(path, filename=os.path.basename(path))
-    raise HTTPException(status_code=404, detail="File not found")
+    safe_path = _resolve_download_path(path)
+    return FileResponse(safe_path, filename=os.path.basename(safe_path))
 
 @app.post("/api/tasks/{task_id}/cancel")
 async def cancel_task(task_id: str):
-    if task_id in process_pool:
-        import subprocess
-        p = process_pool[task_id]
-        try:
-            # 暴力清理该进程及其所有子进程 (包括 chromium)
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)
-            # 同步更新内存和数据库
-            if task_id in tasks_db:
-                tasks_db[task_id].status = "cancelled"
-                tasks_db[task_id].progress = 0
-            
-            from core.final_pipeline import supabase as sb
-            sb.table("analysis_tasks").update({"status": "cancelled", "progress": 0}).eq("id", task_id).execute()
-            return {"status": "success"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-    raise HTTPException(status_code=404, detail="Task not active")
+    from core.final_pipeline import supabase as sb
+
+    active_process = process_pool.get(task_id)
+    if active_process:
+        _terminate_process_tree(active_process)
+        process_pool.pop(task_id, None)
+
+    if task_id in tasks_db:
+        tasks_db[task_id].status = "cancelled"
+        tasks_db[task_id].progress = 0
+
+    sb.table("analysis_tasks").update({"status": "cancelled", "progress": 0}).eq("id", task_id).execute()
+    return {"status": "success"}
 
 @app.get("/api/categories/top_stats")
 def get_top_categories():
@@ -1219,6 +1252,13 @@ async def execute_rpa_pipeline(task_id: str, category_id: str, category_name: st
         return subprocess.Popen(cmd)
 
     async def update_db_async(p, s, url=None, err=None, duration=None):
+        if s != "cancelled":
+            res = await asyncio.to_thread(
+                sb.table("analysis_tasks").select("status").eq("id", task_id).execute
+            )
+            if res.data and res.data[0].get("status") == "cancelled":
+                return
+
         payload = {"progress": p, "status": s}
         if url: payload["excel_path"] = url
         if err: payload["error_msg"] = err
@@ -1226,6 +1266,12 @@ async def execute_rpa_pipeline(task_id: str, category_id: str, category_name: st
         if _analysis_tasks_has_updated_at():
             payload["updated_at"] = datetime.now().isoformat()
         await asyncio.to_thread(sb.table("analysis_tasks").update(payload).eq("id", task_id).execute)
+
+    async def is_task_cancelled():
+        res = await asyncio.to_thread(
+            sb.table("analysis_tasks").select("status").eq("id", task_id).execute
+        )
+        return bool(res.data and res.data[0].get("status") == "cancelled")
 
     async def write_log(f, msg):
         timestamp = datetime.now().isoformat()
@@ -1283,11 +1329,21 @@ async def execute_rpa_pipeline(task_id: str, category_id: str, category_name: st
         
         # 轮询直至完成
         while process.returncode is None:
+            if await is_task_cancelled():
+                _terminate_process_tree(process)
+                process_pool.pop(task_id, None)
+                await write_log(log_file, "Task cancelled during crawling.")
+                return
             await asyncio.sleep(10)
             res = await asyncio.to_thread(sb.table("analysis_tasks").select("status").eq("id", task_id).execute)
             if res.data and res.data[0]['status'] == 'crawling':
                 await update_db_async(30, "crawling")
             if process.returncode is not None: break
+
+        if await is_task_cancelled():
+            process_pool.pop(task_id, None)
+            await write_log(log_file, "Task cancelled after crawling.")
+            return
 
         if process.returncode != 0:
             await write_log(log_file, f"Scraper failed with exit code {process.returncode}")
@@ -1302,7 +1358,24 @@ async def execute_rpa_pipeline(task_id: str, category_id: str, category_name: st
             stdout=log_file,
             stderr=log_file
         )
-        await report_process.wait()
+        process_pool[task_id] = report_process
+
+        while report_process.returncode is None:
+            if await is_task_cancelled():
+                _terminate_process_tree(report_process)
+                process_pool.pop(task_id, None)
+                await write_log(log_file, "Task cancelled during reporting.")
+                return
+            try:
+                await asyncio.wait_for(report_process.wait(), timeout=2)
+            except asyncio.TimeoutError:
+                continue
+
+        process_pool.pop(task_id, None)
+
+        if await is_task_cancelled():
+            await write_log(log_file, "Task cancelled after reporting.")
+            return
 
         if report_process.returncode != 0:
             await update_db_async(0, "failed", err="Reporting pipeline failed.")

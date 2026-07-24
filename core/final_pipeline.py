@@ -33,6 +33,7 @@ class PGQueryBuilder:
         self._offset = None
         self._update_data = None
         self._upsert = False
+        self._delete = False
         self._count_mode = None
 
     def select(self, columns="*", count=None):
@@ -46,6 +47,10 @@ class PGQueryBuilder:
 
     def update(self, data):
         self._update_data = data
+        return self
+
+    def delete(self):
+        self._delete = True
         return self
     
     def upsert(self, data):
@@ -97,7 +102,32 @@ class PGQueryBuilder:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         try:
-            if self._update_data is not None:
+            if self._delete:
+                where_clauses = []
+                params = []
+                for w in self._where:
+                    if len(w) == 3 and w[2] == 'IN':
+                        where_clauses.append(f"{w[0]} = ANY(%s)")
+                        params.append(list(w[1]))
+                    elif len(w) == 3 and w[2] == 'ILIKE':
+                        where_clauses.append(f"{w[0]} ILIKE %s")
+                        params.append(w[1])
+                    elif len(w) == 3 and w[2] in ['>=', '<=']:
+                        where_clauses.append(f"{w[0]} {w[2]} %s")
+                        params.append(w[1])
+                    else:
+                        where_clauses.append(f"{w[0]} = %s")
+                        params.append(w[1])
+
+                where_str = ""
+                if where_clauses:
+                    where_str = " WHERE " + " AND ".join(where_clauses)
+
+                query = f"DELETE FROM {self._table}" + where_str + " RETURNING *"
+                cursor.execute(query, tuple(params))
+                data = cursor.fetchall() if cursor.description else []
+                conn.commit()
+            elif self._update_data is not None:
                 data_list = [self._update_data] if isinstance(self._update_data, dict) else self._update_data
                 results = []
                 for item in data_list:
