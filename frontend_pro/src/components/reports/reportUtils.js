@@ -223,23 +223,52 @@ export const getAverageSalesPerProduct = (selectedTask) => {
     return saleQty / productQty;
 };
 
-export const getTaskProductScore = (tp, getMetricScore, selectedTask) => {
+export const getMetricScore = (metricKey, value, secondaryValue = null, algoConfig = null) => {
+    if (!algoConfig || !algoConfig[metricKey]) return 0;
+    const conf = algoConfig[metricKey];
+    const ranges = conf.ranges;
+    const scores = conf.scores;
+
+    if (metricKey === 'days_per_review') {
+        if (secondaryValue === 0 || secondaryValue === '--') return 0;
+        const ratio = value / secondaryValue;
+        for (let i = 0; i < ranges.length; i++) {
+            if (ratio <= ranges[i]) return scores[i];
+        }
+        return scores[scores.length - 1];
+    }
+
+    if (metricKey === 'price') {
+        if (value > ranges[0]) return scores[0];
+        for (let i = 1; i < ranges.length; i++) {
+            if (value >= ranges[i]) return scores[i];
+        }
+        return scores[scores.length - 1];
+    }
+
+    for (let i = 0; i < ranges.length; i++) {
+        if (value >= ranges[i]) return scores[i];
+    }
+    return scores[scores.length - 1];
+};
+
+export const getTaskProductScore = (tp, getMetricScoreFn, selectedTask) => {
     const raw = tp?.products_raw_data || {};
     const listedDays = getListedDays(raw?.created_dt);
     const avgSales = getAverageSalesPerProduct(selectedTask);
 
-    return getMetricScore('monthly_sales', raw?.sale_qty || 0)
-        + getMetricScore('reviews', raw?.review_qty || 0)
-        + getMetricScore('price', raw?.sale_price || 0)
-        + getMetricScore('days_per_review', listedDays, raw?.review_qty || 0)
-        + getMetricScore('avg_sales', avgSales);
+    return getMetricScoreFn('monthly_sales', raw?.sale_qty || 0)
+        + getMetricScoreFn('reviews', raw?.review_qty || 0)
+        + getMetricScoreFn('price', raw?.sale_price || 0)
+        + getMetricScoreFn('days_per_review', listedDays, raw?.review_qty || 0)
+        + getMetricScoreFn('avg_sales', avgSales);
 };
 
-export const sortTaskProducts = (taskProducts, sortBy, getMetricScore, selectedTask) => {
+export const sortTaskProducts = (taskProducts, sortBy, getMetricScoreFn, selectedTask) => {
     const scoreCache = new WeakMap();
     const getScore = (tp) => {
         if (!scoreCache.has(tp)) {
-            scoreCache.set(tp, getTaskProductScore(tp, getMetricScore, selectedTask));
+            scoreCache.set(tp, getTaskProductScore(tp, getMetricScoreFn, selectedTask));
         }
         return scoreCache.get(tp);
     };
