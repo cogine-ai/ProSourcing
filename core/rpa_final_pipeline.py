@@ -25,6 +25,9 @@ OUTPUT_DIR = "./output"
 IMAGE_DIR = os.getenv("IMAGE_STORAGE_PATH", os.path.join(OUTPUT_DIR, "images"))
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
+from core.rpa_utils import resolve_niche_category_id
+
+
 def download_image(url, sku):
     """支持并行下载，增加超时控制和重试策略"""
     if not url: return None
@@ -162,7 +165,7 @@ def process_rpa_data(task_id=None, input_file=None):
         new_task_data = {
             "category": f"RPA采集_{niche_stats.get('category_name', '未知')}_{datetime.now().strftime('%m%d_%H%M')}",
             "status": "completed",
-            "category_id": niche_stats.get("category_id"),
+            "category_id": resolve_niche_category_id(niche_stats),
             "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
             "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
             "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False)
@@ -331,24 +334,89 @@ def process_rpa_data(task_id=None, input_file=None):
     if raw_payloads:
         try:
             if ENV_MOD == "production":
+                from psycopg2.extras import execute_values as pg_execute_values
+
+                def _primary_key_columns(cursor, table_name):
+                    cursor.execute(
+                        """
+                        SELECT a.attname
+                        FROM pg_constraint c
+                        JOIN pg_class t ON t.oid = c.conrelid
+                        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY (c.conkey)
+                        WHERE t.relname = %s AND c.contype = 'p'
+                        ORDER BY array_position(c.conkey, a.attnum)
+                        """,
+                        (table_name,),
+                    )
+                    return [row[0] for row in cursor.fetchall()]
+
                 print(f"[SYNC] 正在同步 {len(raw_payloads)} 条数据至本地 PostgreSQL...")
                 cursor = conn.cursor()
-                
-                # 同步原始数据
-                raw_query = """INSERT INTO products_raw_data (sku, task_id, product_name, brand_name, gen_brand_id, product_url, sale_price, product_rate, review_qty, merchant_count, sale_qty, sale_amount, amount_abc, amount_prc, preview_image_list, created_dt, category_name, category_ext_id, restrict_type, last_sale_date) 
-                               VALUES %s ON CONFLICT (sku, task_id) DO UPDATE SET product_name = EXCLUDED.product_name, brand_name = EXCLUDED.brand_name, gen_brand_id = EXCLUDED.gen_brand_id, product_url = EXCLUDED.product_url, sale_price = EXCLUDED.sale_price, product_rate = EXCLUDED.product_rate, review_qty = EXCLUDED.review_qty, merchant_count = EXCLUDED.merchant_count, sale_qty = EXCLUDED.sale_qty, sale_amount = EXCLUDED.sale_amount, amount_abc = EXCLUDED.amount_abc, amount_prc = EXCLUDED.amount_prc, preview_image_list = EXCLUDED.preview_image_list, created_dt = EXCLUDED.created_dt, category_name = EXCLUDED.category_name, category_ext_id = EXCLUDED.category_ext_id, restrict_type = EXCLUDED.restrict_type, last_sale_date = EXCLUDED.last_sale_date"""
-                
-                raw_values = [(p['sku'], p['task_id'], p['product_name'], p['brand_name'], p['gen_brand_id'], p['product_url'], p['sale_price'], p['product_rate'], p['review_qty'], p['merchant_count'], p['sale_qty'], p['sale_amount'], p['amount_abc'], p['amount_prc'], p['preview_image_list'], p['created_dt'], p['category_name'], p['category_ext_id'], p['restrict_type'], p['last_sale_date']) for p in raw_payloads]
-                execute_values(cursor, raw_query, raw_values)
-                
-                # 同步计算指标
-                calc_query = "INSERT INTO products_calculated_metrics (sku, task_id, total_score) VALUES %s ON CONFLICT (sku, task_id) DO UPDATE SET total_score = EXCLUDED.total_score"
+
+                raw_pk = _primary_key_columns(cursor, "products_raw_data")
+                calc_pk = _primary_key_columns(cursor, "products_calculated_metrics")
+                use_composite_pk = raw_pk == ["sku", "task_id"] and calc_pk == ["sku", "task_id"]
+                if raw_pk != calc_pk:
+                    print(
+                        f"[SYNC WARN] products_raw_data PK={raw_pk}, "
+                        f"products_calculated_metrics PK={calc_pk}; 使用 raw 表主键策略"
+                    )
+                    use_composite_pk = raw_pk == ["sku", "task_id"]
+
+                raw_columns = (
+                    "sku, task_id, product_name, brand_name, gen_brand_id, product_url, sale_price, "
+                    "product_rate, review_qty, merchant_count, sale_qty, sale_amount, amount_abc, amount_prc, "
+                    "preview_image_list, created_dt, category_name, category_ext_id, restrict_type, last_sale_date"
+                )
+                raw_updates = (
+                    "product_name = EXCLUDED.product_name, brand_name = EXCLUDED.brand_name, "
+                    "gen_brand_id = EXCLUDED.gen_brand_id, product_url = EXCLUDED.product_url, "
+                    "sale_price = EXCLUDED.sale_price, product_rate = EXCLUDED.product_rate, "
+                    "review_qty = EXCLUDED.review_qty, merchant_count = EXCLUDED.merchant_count, "
+                    "sale_qty = EXCLUDED.sale_qty, sale_amount = EXCLUDED.sale_amount, "
+                    "amount_abc = EXCLUDED.amount_abc, amount_prc = EXCLUDED.amount_prc, "
+                    "preview_image_list = EXCLUDED.preview_image_list, created_dt = EXCLUDED.created_dt, "
+                    "category_name = EXCLUDED.category_name, category_ext_id = EXCLUDED.category_ext_id, "
+                    "restrict_type = EXCLUDED.restrict_type, last_sale_date = EXCLUDED.last_sale_date"
+                )
+                if use_composite_pk:
+                    raw_query = (
+                        f"INSERT INTO products_raw_data ({raw_columns}) VALUES %s "
+                        f"ON CONFLICT (sku, task_id) DO UPDATE SET {raw_updates}"
+                    )
+                    calc_query = (
+                        "INSERT INTO products_calculated_metrics (sku, task_id, total_score) VALUES %s "
+                        "ON CONFLICT (sku, task_id) DO UPDATE SET total_score = EXCLUDED.total_score"
+                    )
+                else:
+                    print("[SYNC] 检测到 sku 单列主键，使用 ON CONFLICT (sku)")
+                    raw_query = (
+                        f"INSERT INTO products_raw_data ({raw_columns}) VALUES %s "
+                        f"ON CONFLICT (sku) DO UPDATE SET task_id = EXCLUDED.task_id, {raw_updates}"
+                    )
+                    calc_query = (
+                        "INSERT INTO products_calculated_metrics (sku, task_id, total_score) VALUES %s "
+                        "ON CONFLICT (sku) DO UPDATE SET task_id = EXCLUDED.task_id, total_score = EXCLUDED.total_score"
+                    )
+
+                raw_values = [
+                    (
+                        p['sku'], p['task_id'], p['product_name'], p['brand_name'], p['gen_brand_id'],
+                        p['product_url'], p['sale_price'], p['product_rate'], p['review_qty'],
+                        p['merchant_count'], p['sale_qty'], p['sale_amount'], p['amount_abc'],
+                        p['amount_prc'], p['preview_image_list'], p['created_dt'], p['category_name'],
+                        p['category_ext_id'], p['restrict_type'], p['last_sale_date'],
+                    )
+                    for p in raw_payloads
+                ]
+                pg_execute_values(cursor, raw_query, raw_values)
+
                 calc_values = [(p['sku'], p['task_id'], p['total_score']) for p in calc_payloads]
-                execute_values(cursor, calc_query, calc_values)
+                pg_execute_values(cursor, calc_query, calc_values)
                 
                 # 更新 Task 汇总信息
                 final_update = {
-                    "category_id": niche_stats.get("category_id"),
+                    "category_id": resolve_niche_category_id(niche_stats),
                     "category_stats": json.dumps(json_safe(niche_stats), ensure_ascii=False),
                     "trend_data": json.dumps(json_safe(trend), ensure_ascii=False),
                     "up_categories": json.dumps(json_safe(niche_stats.get("up_categories_json")), ensure_ascii=False),
@@ -371,7 +439,7 @@ def process_rpa_data(task_id=None, input_file=None):
                     supabase.table("products_calculated_metrics").upsert(calc_chunk).execute()
                 
                 final_update = {
-                    "category_id": niche_stats.get("category_ext_id"),
+                    "category_id": resolve_niche_category_id(niche_stats),
                     "category_stats": json_safe(niche_stats),
                     "trend_data": json_safe(trend),
                     "up_categories": json_safe(niche_stats.get("up_categories_json")),
