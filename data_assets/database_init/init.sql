@@ -1,8 +1,8 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS public.products_raw_data (
-    sku TEXT PRIMARY KEY,
-    task_id UUID,
+    sku TEXT NOT NULL,
+    task_id UUID NOT NULL,
     product_name TEXT,
     brand_name TEXT,
     gen_brand_id TEXT,
@@ -22,14 +22,17 @@ CREATE TABLE IF NOT EXISTS public.products_raw_data (
     restrict_type TEXT,
     last_sale_date DATE,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
+    PRIMARY KEY (sku, task_id)
 );
 
 CREATE TABLE IF NOT EXISTS public.products_calculated_metrics (
-    sku TEXT PRIMARY KEY REFERENCES public.products_raw_data(sku) ON DELETE CASCADE,
-    task_id UUID,
+    sku TEXT NOT NULL,
+    task_id UUID NOT NULL,
     total_score NUMERIC,
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
+    PRIMARY KEY (sku, task_id),
+    FOREIGN KEY (sku, task_id) REFERENCES public.products_raw_data (sku, task_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS public.analysis_tasks (
