@@ -17,6 +17,11 @@ import json
 # 将项目根目录添加到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from api.task_dedup import (
+    evaluate_category_task_block as _evaluate_category_task_block,
+    recent_task_limit_iso,
+)
+
 # 环境检测
 is_docker = (
     os.path.exists('/.dockerenv') or 
@@ -112,6 +117,29 @@ def _category_code_variants(category_id):
         if candidate and candidate not in variants:
             variants.append(candidate)
     return variants
+
+
+def _find_category_task_block(sb, category_id, recent_days=15):
+    lookup_codes = _category_code_variants(category_id)
+    if not lookup_codes:
+        return None
+
+    try:
+        res = (
+            sb.table("analysis_tasks")
+            .select("id,status,created_at,category_id,progress,category")
+            .in_("category_id", lookup_codes)
+            .execute()
+        )
+    except Exception as exc:
+        print(f"[TASK DEDUP WARN] Failed to inspect category {category_id}: {exc}")
+        return None
+
+    return _evaluate_category_task_block(
+        res.data or [],
+        category_id,
+        recent_task_limit_iso(recent_days),
+    )
 
 
 def _sync_last_crawl_date(category_id, crawl_date=None):
@@ -1131,23 +1159,32 @@ def recover_interrupted_tasks(req: RecoverInterruptedTasksRequest, background_ta
 def create_category_task(req: TaskRequest, background_tasks: BackgroundTasks):
     """强制根据品类数字 ID 发起选品分析任务 - 改为线程模式"""
     from core.final_pipeline import supabase as sb
-    category_id = req.category
+    category_id = _normalize_category_code(req.category) or str(req.category or "").strip()
     display_title = category_id
-    
-    # 哥，针对防重复抓取的检测：15天同类目拦截
-    recent_limit = (datetime.now() - timedelta(days=15)).isoformat()
-    recent = sb.table("analysis_tasks").select("id").eq("category_id", str(category_id)).eq("status", "completed").gte("created_at", recent_limit).limit(1).execute()
-    if recent.data:
-        # 如果已经有了，不创建任务，直接返回一个已完成的 Task 占位
+
+    blocked = _find_category_task_block(sb, category_id)
+    if blocked:
+        existing = blocked["task"]
         if str(category_id).isdigit():
             res_master = sb.table("algatop_categories_master").select("name_cn").eq("algatop_id", str(category_id)).limit(1).execute()
             if res_master.data and res_master.data[0]['name_cn']:
                 display_title = res_master.data[0]['name_cn']
+        elif existing.get("category"):
+            display_title = existing["category"]
+
+        if blocked["kind"] == "completed_recent":
+            return TaskStatus(
+                task_id=existing["id"],
+                category=display_title,
+                status="completed",
+                progress=100,
+            )
+
         return TaskStatus(
-            task_id=recent.data[0]['id'],
+            task_id=existing["id"],
             category=display_title,
-            status="completed",
-            progress=100
+            status=existing.get("status") or "pending",
+            progress=existing.get("progress") or 0,
         )
     
     # 如果是数字 ID，直接去主表查中文名存库
