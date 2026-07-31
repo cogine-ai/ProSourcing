@@ -1,4 +1,4 @@
 FROM postgres:15-alpine
 
-COPY scripts/init.sql /docker-entrypoint-initdb.d/01_init.sql
-COPY scripts/seed_data.sql /docker-entrypoint-initdb.d/02_seed_data.sql
+COPY data_assets/database_init/init.sql /docker-entrypoint-initdb.d/01_init.sql
+COPY data_assets/database_init/seed_categories.sql /docker-entrypoint-initdb.d/02_seed_categories.sql

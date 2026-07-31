@@ -371,7 +371,7 @@ def process_rpa_data(task_id=None, input_file=None):
                     supabase.table("products_calculated_metrics").upsert(calc_chunk).execute()
                 
                 final_update = {
-                    "category_id": niche_stats.get("category_ext_id"),
+                    "category_id": niche_stats.get("category_id") or niche_stats.get("category_ext_id"),
                     "category_stats": json_safe(niche_stats),
                     "trend_data": json_safe(trend),
                     "up_categories": json_safe(niche_stats.get("up_categories_json")),
@@ -381,6 +381,7 @@ def process_rpa_data(task_id=None, input_file=None):
                 print(f"[SUCCESS] Supabase 同步完成！")
         except Exception as e:
             print(f"[ERROR] 数据库同步失败: {e}")
+            raise
 
     # 3. 产生 Excel 报告
     processed_results.sort(key=lambda x: x['total_score'], reverse=True)
