@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import './index.css';
 import { PDL } from './lib/pdl';
 import { TASK_STATUS } from './constants';
-import Breadcrumbs from './components/Breadcrumbs';
 import CategoryCard from './components/CategoryCard';
 import { KaspiTaskView } from './components/KaspiTaskView';
 import { LogViewer } from './components/LogViewer';
@@ -62,7 +61,6 @@ const App = () => {
     const [filterReviews, setFilterReviews] = useState(15);
     const [filterMinPrice, setFilterMinPrice] = useState(800);
     const [sortBy, setSortBy] = useState('amount');
-    const [hideZeroSales, setHideZeroSales] = useState(false);
     const [hideZeroValid, setHideZeroValid] = useState(false);
     const reportPageSize = 20;
     const totalReportPages = Math.max(1, Math.ceil(totalTasks / reportPageSize));
@@ -98,7 +96,6 @@ const App = () => {
     const [tasks, setTasks] = useState([]);
     const [selectedTask, setSelectedTask] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedCats, setSelectedCats] = useState([]);
     const [currentTopCategory, setCurrentTopCategory] = useState(null);
     const [loading, setLoading] = useState(false);
     const [reportTab, setReportTab] = useState('metrics');
@@ -151,21 +148,13 @@ const App = () => {
 
     const tabs = [
         { id: 'market', label: '首页', description: '全量大盘数据概览', icon: <LayoutDashboard size={18} /> },
-        { id: 'tasks', label: '采集任务', description: '分类树采集任务管理', icon: <Target size={18} /> },
-        { id: 'archives', label: '选品报告', description: '查看 AI 生成的选品分析结果', icon: <History size={18} /> },
-        { id: 'algo', label: '算法配置', description: '评分维度与权重管理', icon: <Settings2 size={18} /> },
-        { id: 'settings', label: '系统管理', description: '账号、权限与系统配置', icon: <Users size={18} /> },
-    ];
-
-    const tabsCN = [
-        { id: 'market', label: '首页', description: '全量大盘数据概览', icon: <LayoutDashboard size={18} /> },
         { id: 'tasks', label: '采集任务', description: '分类模型树采集任务管理', icon: <Target size={18} /> },
         { id: 'archives', label: '选品报告', description: '查看 AI 生成的选品分析结果', icon: <History size={18} /> },
         { id: 'algo', label: '算法配置', description: '评分维度与权重管理', icon: <Settings2 size={18} /> },
         { id: 'settings', label: '系统管理', description: '账号、权限与系统配置', icon: <Users size={18} /> },
     ];
 
-    const currentTabInfo = tabsCN.find(t => t.id === activeTab);
+    const currentTabInfo = tabs.find(t => t.id === activeTab);
 
     // Helper for status colors
     const getStatusColor = (status) => {
@@ -394,24 +383,6 @@ const App = () => {
         scrollReportListToTop();
     };
 
-    // 获取抽屉类目树（一级分类）
-    const fetchLeafCategories = async (topId) => {
-        const target = categories.find(c => c.category_id === topId);
-        if (target && target.leaves) return;
-
-        setCategories(prev => prev.map(c => c.category_id === topId ? { ...c, loadingLeaves: true } : c));
-
-        try {
-            const res = await fetch(`${API_BASE}/api/categories/${topId}/leaves`);
-            const leaves = await res.json();
-            setCategories(prev => prev.map(c => c.category_id === topId ? { ...c, leaves, loadingLeaves: false } : c));
-        } catch (err) {
-            console.error("Fetch leaves failed", err);
-            setCategories(prev => prev.map(c => c.category_id === topId ? { ...c, loadingLeaves: false } : c));
-        }
-    };
-
-
     const handleCreateTask = async (cat) => {
         try {
             const categoryId = cat.category_id || cat.id || cat;
@@ -452,62 +423,6 @@ const App = () => {
         }
     };
 
-    const handleToggleLeaf = (leafId) => {
-        setSelectedCats(prev =>
-            prev.includes(leafId) ? prev.filter(id => id !== leafId) : [...prev, leafId]
-        );
-    };
-
-    const handleToggleAllLeaves = (topCat) => {
-        if (!topCat.leaves || topCat.leaves.length === 0) return;
-
-        const leafIds = topCat.leaves.map(l => l.category_id);
-        const allSelected = leafIds.every(id => selectedCats.includes(id));
-
-        if (allSelected) {
-            setSelectedCats(prev => prev.filter(id => !leafIds.includes(id)));
-        } else {
-            setSelectedCats(prev => Array.from(new Set([...prev, ...leafIds])));
-        }
-    };
-
-    const startBatchTask = async () => {
-        if (selectedCats.length === 0) return;
-        setLoading(true);
-
-        try {
-            const topCategoryByLeafId = new Map();
-            categories.forEach((topCat) => {
-                (topCat.leaves || []).forEach((leaf) => {
-                    topCategoryByLeafId.set(String(leaf.category_id), {
-                        category_code: String(leaf.category_id),
-                        top_category_id: String(topCat.category_id),
-                        top_category_name_cn: topCat.name_cn || '',
-                        top_category_name_ru: topCat.name_ru || '',
-                    });
-                });
-            });
-            const payload = selectedCats.map((id) => topCategoryByLeafId.get(String(id)) || { category_code: String(id) });
-            const res = await fetch(`${API_BASE}/api/kaspi/tasks/batch`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            const data = await res.json();
-            if (data.success || data.status === 'success') {
-                const total = data.total_requested || selectedCats.length;
-                const filtered = data.filtered_duplicate || 0;
-                const actual = data.actual_executed || (data.tasks ? data.tasks.length : 0);
-                alert(`已请求 ${total} 个分类，过滤重复 ${filtered} 个，实际创建任务 ${actual} 个`);
-            }
-        } catch(e) { console.error('Batch error', e); }
-
-        setSelectedCats([]);
-        setLoading(false);
-        fetchHistory();
-        setActiveTab('archives');
-    };
-
     // 穿透获取任务详情数据
     useEffect(() => {
         if (selectedTask) {
@@ -544,7 +459,7 @@ const App = () => {
 
                 <div className="p-4 flex-1 space-y-6 overflow-y-auto">
                     <nav className="space-y-1">
-                        {tabsCN.map((item) => (
+                        {tabs.map((item) => (
                             <button
                                 key={item.id}
                                 onClick={() => setActiveTab(item.id)}
@@ -1055,7 +970,6 @@ const App = () => {
                                                                         <div className="text-[10px] font-bold text-muted-foreground/40 whitespace-nowrap border-l border-border/40 pl-6 uppercase tracking-tighter">
                                                                             共计 <span className="text-primary">{taskProducts.filter(tp => {
                                                                                 const raw = tp.products_raw_data || {};
-                                                                                if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                                 if (!onlyHighQuality) return true;
                                                                                 const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                                 return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
@@ -1070,7 +984,6 @@ const App = () => {
                                                                     taskProducts
                                                                         .filter(tp => {
                                                                             const raw = tp.products_raw_data || {};
-                                                                            if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                             if (!onlyHighQuality) return true;
                                                                             const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                             return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
@@ -1375,7 +1288,6 @@ const App = () => {
                                                                 <div className="text-[10px] font-bold text-muted-foreground/40 whitespace-nowrap border-l border-border/40 pl-6 uppercase tracking-tighter">
                                                                     共计 <span className="text-primary">{taskProducts.filter(tp => {
                                                                         const raw = tp.products_raw_data || {};
-                                                                        if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                         if (!onlyHighQuality) return true;
                                                                         const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                         return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
@@ -1404,7 +1316,6 @@ const App = () => {
                                                                     {taskProducts
                                                                         .filter(tp => {
                                                                             const raw = tp.products_raw_data || {};
-                                                                            if (hideZeroSales && (raw.sale_qty || 0) <= 0) return false;
                                                                             if (!onlyHighQuality) return true;
                                                                             const listedDays = raw.created_dt ? Math.max(1, Math.floor((new Date() - new Date(raw.created_dt.split('.')[0].replace(' ', 'T'))) / (1000 * 60 * 60 * 24))) : 999;
                                                                             return listedDays <= forceNum(filterDays) && forceNum(raw.sale_qty) >= forceNum(filterSales) && forceNum(raw.review_qty) >= forceNum(filterReviews) && forceNum(raw.sale_price) >= forceNum(filterMinPrice);
