@@ -209,13 +209,6 @@ export const isHighQualityProduct = (raw, filters, forceNum) => {
         && forceNum(raw?.sale_price ?? 0) >= forceNum(filters?.filterMinPrice ?? 0);
 };
 
-export const filterTaskProducts = (taskProducts, onlyHighQuality, filters, forceNum) => (
-    taskProducts.filter((tp) => {
-        if (!onlyHighQuality) return true;
-        return isHighQualityProduct(tp?.products_raw_data, filters, forceNum);
-    })
-);
-
 export const getAverageSalesPerProduct = (selectedTask) => {
     const saleQty = forceIntFallback(selectedTask?.category_stats?.sale_qty);
     const productQty = forceIntFallback(selectedTask?.category_stats?.sale_product_qty);
