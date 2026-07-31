@@ -467,7 +467,7 @@ def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
     task_id = db_task['id']
     task = TaskStatus(task_id=task_id, category=cat_name, status="pending", progress=0)
     tasks_db[task_id] = task
-    background_tasks.add_task(execute_rpa_pipeline, task_id, req.category, cat_name)
+    background_tasks.add_task(execute_rpa_pipeline, task_id, category_id, cat_name)
     return task
 
 @app.get("/api/tasks/history")
