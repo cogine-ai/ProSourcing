@@ -933,72 +933,10 @@ def system_health():
     }
 
 
-@app.get("/api/categories/search")
-async def search_categories(q: str):
-    """支持模糊检索类目名称 (还原)"""
-    from core.final_pipeline import supabase as sb
-    res = sb.table("categories").select("*").ilike("category_name", f"%{q}%").limit(100).execute()
-    return res.data
-
-@app.get("/api/categories/children/{parent_id}")
-async def get_child_categories(parent_id: str):
-    """获取指定父类目的所有直接子类目 (还原)"""
-    from core.final_pipeline import supabase as sb
-    res = sb.table("categories").select("*").eq("parent_category_id", parent_id).order("sale_product_qty", desc=True).execute()
-    return res.data
-
 @app.get("/api/categories/tree")
 def get_category_tree():
     """复用 top_stats 的逻辑以获取带计数的树根 - 线程模式"""
     return get_top_categories()
-
-@app.get("/api/categories/{top_id}/leaves")
-async def get_top_category_leaves(top_id: str):
-    """获取指定一级分类下的所有最小子类 (叶子节点) - 恢复原始逻辑"""
-    from core.final_pipeline import supabase as sb
-    
-    # 1. 获取传入的大类信息
-    res = sb.table("categories").select("*").eq("category_id", top_id).execute()
-    if not res.data:
-        return []
-    
-    # 全量拉取类目，在内存中构建树
-    all_cats = []
-    page_size = 1000
-    for i in range(10): # 最多拉取 10000 条
-        res = sb.table("categories").select("*").range(i * page_size, (i + 1) * page_size - 1).execute()
-        all_cats.extend(res.data)
-        if len(res.data) < page_size:
-            break
-            
-    # 构建 parent_category_id -> [children...] 的映射
-    p_map = {}
-    nodes_by_id = {}
-    for cat in all_cats:
-        cid = cat['category_id']
-        pid = cat.get("parent_category_id")
-        nodes_by_id[cid] = cat
-        if pid not in p_map: p_map[pid] = []
-        p_map[pid].append(cat)
-        
-    leaves = []
-    def find_leaves(curr_id):
-        children = p_map.get(curr_id, [])
-        if not children:
-            node = nodes_by_id.get(curr_id)
-            if node:
-                # 哥，这里也强制把 category_id 替换成数字 ID
-                aid = node.get("algatop_id") or node.get("category_id")
-                node["category_id"] = aid
-                leaves.append(node)
-        else:
-            for c in children:
-                find_leaves(c["category_id"])
-    
-    find_leaves(top_id)
-    return leaves
-
-
 
 @app.post("/api/tasks/{task_id}/retry", response_model=TaskStatus)
 def retry_task(task_id: str, background_tasks: BackgroundTasks):
@@ -1355,78 +1293,6 @@ def get_global_stats():
 
 @app.get('/api/kaspi/tree')
 def get_kaspi_global_tree():
-    return get_kaspi_global_tree_v2()
-
-def get_kaspi_global_tree_v2():
-    return get_kaspi_global_tree_v4()
-
-def get_kaspi_global_tree_v3():
-    """基于 algatop_categories_master 构建完整分类树结构 - 彻底解决阻塞问题"""
-    from core.final_pipeline import supabase as sb
-    try:
-        all_cats = []
-        page_size = 1000
-        for i in range(10):
-            res = sb.table('algatop_categories_master').select('*').range(i * page_size, (i + 1) * page_size - 1).execute()
-            if not res.data: break
-            all_cats.extend(res.data)
-            if len(res.data) < page_size: break
-        
-        if not all_cats: return []
-
-        # 哥，针对所有叶子节点，一次性查出它们最近的成功采集时间
-        all_leaf_ids = sorted({
-            v
-            for c in all_cats if c.get('is_leaf')
-            for v in (str(c['algatop_id']), str(c['algatop_id']).zfill(5))
-        })
-        date_map = {}
-            # 哥，采纳 CodeRabbit 建议：增加叶子类目过滤，并改用 updated_at (更准确的完成时间)
-        try:
-            res_tasks = (
-                sb.table("analysis_tasks")
-                .select("category_id, updated_at, created_at")
-                .eq("status", "completed")
-                .in_("category_id", all_leaf_ids)
-                .order("updated_at", desc=True)
-                .execute()
-            )
-            for t in res_tasks.data:
-                cid = str(t.get('category_id')) if t.get('category_id') else None
-                dt = t.get('updated_at') or t.get('created_at')
-                # 倒序查询，命中即最新
-                if cid and dt and cid not in date_map:
-                    # 只取日期部分 yyyy-mm-dd
-                    date_map[cid] = dt[:10]
-        except Exception as eTree:
-            print(f"[TREE DATE ERROR] {eTree}")
-
-
-        p_map = {}
-        for c in all_cats:
-            raw_pid = c.get('parent_id')
-            pid = str(raw_pid) if raw_pid and str(raw_pid).lower() != 'none' else ''
-            node = {
-                'category_code': str(c['algatop_id']),
-                'title': c.get('name_cn') or c.get('name_ru') or str(c['algatop_id']),
-                'parent_code': pid,
-                'is_leaf': c.get('is_leaf', False),
-                'last_crawl_date': date_map.get(str(c['algatop_id'])) or date_map.get(str(c['algatop_id']).zfill(5))
-            }
-            p_map.setdefault(pid, []).append(node)
-
-        def build_tree(pid=''):
-            children = p_map.get(pid, [])
-            for child in children:
-                child['children'] = build_tree(child['category_code'])
-            return children
-
-        return build_tree('')
-    except Exception as e:
-        print(f"[TREE API ERROR] {str(e)}")
-        return []
-
-def get_kaspi_global_tree_v4():
     """Build full kaspi tree from categories table and attach last_crawl_date."""
     from core.final_pipeline import supabase as sb
     try:
@@ -1536,7 +1402,7 @@ def get_kaspi_global_tree_v4():
 
         return build_tree("")
     except Exception as e:
-        print(f"[TREE API ERROR V4] {str(e)}")
+        print(f"[TREE API ERROR] {str(e)}")
         return []
 
 @app.post('/api/kaspi/tasks/batch')
