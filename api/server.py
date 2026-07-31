@@ -26,6 +26,7 @@ is_docker = (
 
 from core.final_pipeline import run_scoring_and_export
 from core.scoring import ScoringEngine, DEFAULT_CONFIG
+from api.task_filters import get_task_valid_product_count, normalize_category_code
 # from deep_translator import GoogleTranslator
 
 app = FastAPI(title="ProSourcing API")
@@ -74,33 +75,6 @@ def _start_top_category_stats_refresh():
     return True
 
 
-def _get_task_valid_product_count(task):
-    stats = task.get("category_stats") or {}
-    if isinstance(stats, str):
-        try:
-            stats = json.loads(stats)
-        except json.JSONDecodeError:
-            stats = {}
-
-    for key in ("valid_product_count", "valid_product_qty"):
-        value = stats.get(key)
-        if value is None:
-            continue
-        try:
-            return int(float(str(value).replace(",", "").strip() or 0))
-        except (TypeError, ValueError):
-            continue
-
-    return 0
-
-
-def _normalize_category_code(category_id):
-    raw = str(category_id or "").strip()
-    if not raw:
-        return ""
-    return raw.zfill(5) if raw.isdigit() else raw
-
-
 def _category_code_variants(category_id):
     raw = str(category_id or "").strip()
     if not raw:
@@ -115,7 +89,7 @@ def _category_code_variants(category_id):
 
 
 def _sync_last_crawl_date(category_id, crawl_date=None):
-    normalized_code = _normalize_category_code(category_id)
+    normalized_code = normalize_category_code(category_id)
     if not normalized_code:
         return False
 
@@ -508,7 +482,7 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
             all_res = query.select("*").order("created_at", desc=True).range(fetch_offset, fetch_offset + batch_size - 1).execute()
             batch = all_res.data or []
             for t in batch:
-                if _get_task_valid_product_count(t) <= 0:
+                if get_task_valid_product_count(t) <= 0:
                     continue
                 if not t.get('duration') and t['status'] == 'completed':
                     try:
@@ -1449,7 +1423,7 @@ def get_kaspi_global_tree_v4():
             return []
 
         leaf_ids = {
-            _normalize_category_code(c.get("category_id"))
+            normalize_category_code(c.get("category_id"))
             for c in all_cats
             if c.get("is_leaf")
         }
@@ -1494,7 +1468,7 @@ def get_kaspi_global_tree_v4():
                     .execute()
                 )
                 for row in (res_tasks.data or []):
-                    code_raw = _normalize_category_code(row.get("category_id"))
+                    code_raw = normalize_category_code(row.get("category_id"))
                     dt = str(row.get("updated_at") or row.get("created_at") or "").strip()
                     if not code_raw or not dt:
                         continue
@@ -1517,7 +1491,7 @@ def get_kaspi_global_tree_v4():
             aid = id_to_aid.get(orig_code) or orig_code
             paid = id_to_aid.get(pid_code) or pid_code
             
-            normalized_code = _normalize_category_code(aid)
+            normalized_code = normalize_category_code(aid)
             node = {
                 "category_code": aid,
                 "title": c.get("name_cn") or c.get("name_ru") or aid,
