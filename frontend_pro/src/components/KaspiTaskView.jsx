@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useTaskStore } from '../store/useTaskStore';
-import { Loader2, PlusCircle, CheckCircle2, ChevronRight, Play, Trash2, X } from 'lucide-react';
-import { PDL } from '../lib/pdl';
+import { Loader2, PlusCircle, ChevronRight, Play, Trash2, X } from 'lucide-react';
 
 const API_BASE = window.location.origin;
 
@@ -9,13 +8,6 @@ function TreeNode({ node, level = 0 }) {
     const { selectedLeafIds, addLeaf, removeLeaf } = useTaskStore();
     const isLeaf = node.is_leaf;
     const checked = isLeaf && selectedLeafIds.has(node.category_code);
-    const indeterminate = !isLeaf && node.children?.some(c => hasSelectedChild(c, selectedLeafIds));
-
-    // recursive helper to check if any descendant is selected
-    function hasSelectedChild(n, selectedSet) {
-        if (n.is_leaf) return selectedSet.has(n.category_code);
-        return n.children?.some(child => hasSelectedChild(child, selectedSet));
-    }
 
     const toggle = () => {
         if (isLeaf) {

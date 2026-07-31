@@ -2,7 +2,6 @@ import json
 import os
 import requests
 from datetime import datetime
-from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as OpenPyxlImage
 import sys
 from dotenv import load_dotenv
@@ -18,8 +17,6 @@ import concurrent.futures
 # ==========================================
 # 核心配置
 # ==========================================
-INPUT_FILE = "./output/json/rpa_output.json"
-TEMPLATE_PATH = "./templates/AI产品开发.xlsx"
 OUTPUT_DIR = "./output"
 # 优先从环境变量读取，避免图片入包导致项目臃肿
 IMAGE_DIR = os.getenv("IMAGE_STORAGE_PATH", os.path.join(OUTPUT_DIR, "images"))
@@ -133,27 +130,6 @@ def process_rpa_data(task_id=None, input_file=None):
     if not products:
         print("[ERROR] 商品列表为空，请检查采集环节。")
         return
-
-    # 翻译商品名称 (哥，客户现场环境可能没网，暂时注掉)
-    # from deep_translator import GoogleTranslator
-    # import concurrent.futures
-
-    # def translate_name(p):
-    #     raw_name = p.get('product_name')
-    #     if not raw_name: return p
-    #     try:
-    #         # 哥，源语言定死为 'ru' (俄语)，提高翻译准确度和稳定性
-    #         translator = GoogleTranslator(source='ru', target='zh-CN')
-    #         p['product_name'] = translator.translate(raw_name)
-    #         # print(f"[DEBUG] Translated: {raw_name[:20]} -> {p['product_name'][:20]}")
-    #     except Exception as e:
-    #         print(f"[WARN] 翻译失败 ({raw_name[:20]}...): {e}")
-    #         pass
-    #     return p
-
-    # print(f"[SYNC] 正在翻译 {len(products)} 条商品名称...")
-    # with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-    #     products = list(executor.map(translate_name, products))
 
     # 1.1 校验 Task ID，如果无效则创建新任务
     final_task_id = task_id
