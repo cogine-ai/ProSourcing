@@ -356,6 +356,18 @@ def _parse_task_timestamp(value):
         return None
 
 
+def _is_task_activity_stale(activity_time, stale_minutes: int) -> bool:
+    if not activity_time:
+        return True
+    now_ref = datetime.now(activity_time.tzinfo) if activity_time.tzinfo else datetime.now()
+    return activity_time <= now_ref - timedelta(minutes=stale_minutes)
+
+
+def _task_activity_sort_key(task) -> float:
+    activity_time = _parse_task_timestamp(task.get("updated_at")) or _parse_task_timestamp(task.get("created_at"))
+    return activity_time.timestamp() if activity_time else 0.0
+
+
 def _task_matches_days(task, days):
     if not days or days <= 0:
         return True
@@ -1063,15 +1075,11 @@ def recover_interrupted_tasks(req: RecoverInterruptedTasksRequest, background_ta
     matched = []
     for task in res.data or []:
         activity_time = _parse_task_timestamp(task.get("updated_at")) or _parse_task_timestamp(task.get("created_at"))
-        if activity_time and activity_time > stale_before:
+        if not _is_task_activity_stale(activity_time, stale_minutes):
             continue
         matched.append(task)
 
-    matched.sort(
-        key=lambda task: (
-            _parse_task_timestamp(task.get("updated_at")) or _parse_task_timestamp(task.get("created_at")) or datetime.min
-        )
-    )
+    matched.sort(key=_task_activity_sort_key)
 
     if req.limit and req.limit > 0:
         matched = matched[: req.limit]
