@@ -356,6 +356,19 @@ def _parse_task_timestamp(value):
         return None
 
 
+INFLIGHT_TASK_STATUSES = frozenset(
+    {"pending", "running", "crawling", "reporting", "processing", "retrying", "scraping"}
+)
+DEFAULT_INFLIGHT_STALE_MINUTES = 20
+
+
+def _is_task_activity_stale(activity_time, stale_minutes: int) -> bool:
+    if not activity_time:
+        return True
+    now_ref = datetime.now(activity_time.tzinfo) if activity_time.tzinfo else datetime.now()
+    return activity_time <= now_ref - timedelta(minutes=stale_minutes)
+
+
 def _task_matches_days(task, days):
     if not days or days <= 0:
         return True
@@ -1638,7 +1651,7 @@ def create_kaspi_tasks_batch(items = Body(...), background_tasks: BackgroundTask
                 try:
                     recent = (
                         sb.table("analysis_tasks")
-                        .select("category_id,status,created_at")
+                        .select("category_id,status,created_at,updated_at")
                         .in_("category_id", chunk)
                         .execute()
                     )
@@ -1648,8 +1661,10 @@ def create_kaspi_tasks_batch(items = Body(...), background_tasks: BackgroundTask
                         cid_norm = norm_code(cid)
                         st = (r.get("status") or "").lower()
                         created_at = r.get("created_at") or ""
-                        if st in {"pending", "running", "crawling", "reporting", "processing", "retrying"}:
-                            blocked_norm_ids.add(cid_norm)
+                        if st in INFLIGHT_TASK_STATUSES:
+                            activity_time = _parse_task_timestamp(r.get("updated_at")) or _parse_task_timestamp(created_at)
+                            if not _is_task_activity_stale(activity_time, DEFAULT_INFLIGHT_STALE_MINUTES):
+                                blocked_norm_ids.add(cid_norm)
                             continue
                         if st == "completed" and created_at >= recent_limit:
                             blocked_norm_ids.add(cid_norm)
