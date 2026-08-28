@@ -149,32 +149,6 @@ def _sync_last_crawl_date(category_id, crawl_date=None):
     return updated
 
 
-def _extract_category_aliases(category_value):
-    aliases = set()
-    if category_value is None:
-        return aliases
-
-    if isinstance(category_value, str):
-        value = category_value.strip()
-        if not value:
-            return aliases
-        aliases.add(value)
-        if " (" in value and value.endswith(")"):
-            main_part, _, tail = value.partition(" (")
-            aliases.add(main_part.strip())
-            aliases.add(tail[:-1].strip())
-        return {alias for alias in aliases if alias}
-
-    if isinstance(category_value, dict):
-        for key in ("category_name", "name_ru", "name_cn", "category_cn", "name"):
-            value = category_value.get(key)
-            if isinstance(value, str) and value.strip():
-                aliases.update(_extract_category_aliases(value))
-        return aliases
-
-    return aliases
-
-
 def _contains_chinese(text):
     return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
 
@@ -200,19 +174,6 @@ def _normalize_up_categories(up_categories):
         return up_categories
 
     return [up_categories]
-
-
-def _task_matches_top_category(task, top_category):
-    target_aliases = _extract_category_aliases(top_category)
-    if not target_aliases:
-        return True
-
-    task_path = _normalize_up_categories(task.get("up_categories")) or _resolve_task_up_categories(task)
-    for item in task_path:
-        if _extract_category_aliases(item) & target_aliases:
-            return True
-
-    return False
 
 
 RUNNING_TASK_STATUSES = {"pending", "scraping", "crawling", "reporting", "processing", "retrying"}
@@ -356,21 +317,6 @@ def _parse_task_timestamp(value):
         return None
 
 
-def _task_matches_days(task, days):
-    if not days or days <= 0:
-        return True
-    created_at = _parse_task_timestamp(task.get("created_at"))
-    if not created_at:
-        return False
-    return created_at >= (datetime.now(created_at.tzinfo) - timedelta(days=days))
-
-
-def _task_matches_status_filters(task, expanded_statuses):
-    if not expanded_statuses:
-        return True
-    return (task.get("status") or "").strip().lower() in expanded_statuses
-
-
 def _build_initial_up_categories(category_id: str):
     seed_task = {"category_id": str(category_id or "").strip(), "up_categories": None}
     return _resolve_task_up_categories(seed_task)
@@ -494,11 +440,7 @@ def get_task_history(page: int = 1, page_size: int = 20, q: Optional[str] = None
 
     if top_category and top_category != 'all':
         query = query.eq("top_category_name_cn", top_category)
-        
-    if False and top_category and top_category != 'all':
-        # 通过 supabase jsonb 的包含查询过滤含有该大类名的节点
-        query = query.contains("up_categories", [{"category_name": top_category}])
-    
+
     # 1. 获取满足条件的精确总数
     if hide_zero:
         filtered = []
@@ -684,11 +626,6 @@ def get_products():
 async def get_index():
     with open(os.path.join(os.path.dirname(__file__), "index.html"), "r", encoding="utf-8") as f:
         return f.read()
-
-@app.post("/api/system/logs/cleanup")
-def cleanup_logs(days: int = 7):
-    """清理 N 天前的任务日志 (保留兼容性)"""
-    return clear_logs(LogCleanupRequest(days=days))
 
 # --- 系统管理 API ---
 
@@ -1355,78 +1292,6 @@ def get_global_stats():
 
 @app.get('/api/kaspi/tree')
 def get_kaspi_global_tree():
-    return get_kaspi_global_tree_v2()
-
-def get_kaspi_global_tree_v2():
-    return get_kaspi_global_tree_v4()
-
-def get_kaspi_global_tree_v3():
-    """基于 algatop_categories_master 构建完整分类树结构 - 彻底解决阻塞问题"""
-    from core.final_pipeline import supabase as sb
-    try:
-        all_cats = []
-        page_size = 1000
-        for i in range(10):
-            res = sb.table('algatop_categories_master').select('*').range(i * page_size, (i + 1) * page_size - 1).execute()
-            if not res.data: break
-            all_cats.extend(res.data)
-            if len(res.data) < page_size: break
-        
-        if not all_cats: return []
-
-        # 哥，针对所有叶子节点，一次性查出它们最近的成功采集时间
-        all_leaf_ids = sorted({
-            v
-            for c in all_cats if c.get('is_leaf')
-            for v in (str(c['algatop_id']), str(c['algatop_id']).zfill(5))
-        })
-        date_map = {}
-            # 哥，采纳 CodeRabbit 建议：增加叶子类目过滤，并改用 updated_at (更准确的完成时间)
-        try:
-            res_tasks = (
-                sb.table("analysis_tasks")
-                .select("category_id, updated_at, created_at")
-                .eq("status", "completed")
-                .in_("category_id", all_leaf_ids)
-                .order("updated_at", desc=True)
-                .execute()
-            )
-            for t in res_tasks.data:
-                cid = str(t.get('category_id')) if t.get('category_id') else None
-                dt = t.get('updated_at') or t.get('created_at')
-                # 倒序查询，命中即最新
-                if cid and dt and cid not in date_map:
-                    # 只取日期部分 yyyy-mm-dd
-                    date_map[cid] = dt[:10]
-        except Exception as eTree:
-            print(f"[TREE DATE ERROR] {eTree}")
-
-
-        p_map = {}
-        for c in all_cats:
-            raw_pid = c.get('parent_id')
-            pid = str(raw_pid) if raw_pid and str(raw_pid).lower() != 'none' else ''
-            node = {
-                'category_code': str(c['algatop_id']),
-                'title': c.get('name_cn') or c.get('name_ru') or str(c['algatop_id']),
-                'parent_code': pid,
-                'is_leaf': c.get('is_leaf', False),
-                'last_crawl_date': date_map.get(str(c['algatop_id'])) or date_map.get(str(c['algatop_id']).zfill(5))
-            }
-            p_map.setdefault(pid, []).append(node)
-
-        def build_tree(pid=''):
-            children = p_map.get(pid, [])
-            for child in children:
-                child['children'] = build_tree(child['category_code'])
-            return children
-
-        return build_tree('')
-    except Exception as e:
-        print(f"[TREE API ERROR] {str(e)}")
-        return []
-
-def get_kaspi_global_tree_v4():
     """Build full kaspi tree from categories table and attach last_crawl_date."""
     from core.final_pipeline import supabase as sb
     try:
@@ -1536,7 +1401,7 @@ def get_kaspi_global_tree_v4():
 
         return build_tree("")
     except Exception as e:
-        print(f"[TREE API ERROR V4] {str(e)}")
+        print(f"[TREE API ERROR] {str(e)}")
         return []
 
 @app.post('/api/kaspi/tasks/batch')
