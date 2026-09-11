@@ -50,6 +50,23 @@ def _get_top_category_stats_script_path():
     return os.path.join(project_root, "core", "fetch_top_category_stats.py"), project_root
 
 
+def _resolve_category_seed_file():
+    """Locate the category seed JSON after data_assets reorganization (aa99d12)."""
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidates = [
+        os.path.join(project_root, "data_assets", "category_trees", "full_category_data.json"),
+        os.path.join(project_root, "scripts", "full_category_data.json"),
+        "/app/data_assets/category_trees/full_category_data.json",
+        "/app/scripts/full_category_data.json",
+        "data_assets/category_trees/full_category_data.json",
+        "scripts/full_category_data.json",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None
+
+
 def _start_top_category_stats_refresh():
     global top_category_stats_process
 
@@ -1743,29 +1760,27 @@ def seed_database_on_startup():
             res = sb.table("algatop_categories_master").select("algatop_id").limit(1).execute()
             
             if not res.data:
-                # 哥，路径适配容器环境，优先找 app/scripts
-                seed_file = "scripts/full_category_data.json"
-                if not os.path.exists(seed_file):
-                    seed_file = "/app/scripts/full_category_data.json"
-                
-                if os.path.exists(seed_file):
+                seed_file = _resolve_category_seed_file()
+                if seed_file:
                     print(f"[SEED] Database empty. Seeding from {seed_file}...")
                     with open(seed_file, "r", encoding="utf-8-sig") as f:
                         data = json.load(f)
-                        
+
                     # 批量导入 Master (分批以防太大)
                     master_list = data.get('master', [])
                     for i in range(0, len(master_list), 500):
                         batch = master_list[i:i+500]
                         sb.table("algatop_categories_master").insert(batch).execute()
-                    
+
                     # 批量导入 Stats
                     stats_list = data.get('stats', [])
                     for i in range(0, len(stats_list), 500):
                         batch = stats_list[i:i+500]
                         sb.table("algatop_top_category_stats").insert(batch).execute()
-                    
+
                     print(f"✅ Successfully seeded {len(master_list)} categories and {len(stats_list)} stats.")
+                else:
+                    print("[SEED ERROR] Category seed file not found. Checked data_assets/category_trees/full_category_data.json and legacy scripts/ paths.")
 
             # 2. 检查兼容表 categories 是否有数据
             res_compat = sb.table("categories").select("category_id").limit(1).execute()
