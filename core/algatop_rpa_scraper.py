@@ -82,7 +82,11 @@ class AlgatopRPAScraper:
         try:
             # 如果 ws_url 包含 ws://，connect_over_cdp 会直接使用该地址，避开探测
             self.browser = await self.pw.chromium.connect_over_cdp(ws_url)
-            self.context = self.browser.contexts[0]
+            self.context = (
+                self.browser.contexts[0]
+                if self.browser.contexts
+                else await self.browser.new_context()
+            )
             
             # --- 已移除激进清理逻辑，防止多任务互相干扰 ---
 

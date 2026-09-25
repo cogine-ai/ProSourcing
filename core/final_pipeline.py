@@ -107,7 +107,7 @@ class PGQueryBuilder:
                         placeholders = ", ".join(["%s"] * len(keys))
                         
                         # 哥，这里得智能点，识别不同的主键名，防止 system_settings (key) 等表 upsert 报错
-                        pk_candidates = ['algatop_id', 'sku', 'id', 'key']
+                        pk_candidates = ['algatop_id', 'sku', 'category_code', 'id', 'key']
                         pk = next((k for k in pk_candidates if k in keys), "id")
                         
                         # 更新时排除掉主键本身，防止 PostgreSQL 报主键冲突
