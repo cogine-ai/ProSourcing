@@ -13,6 +13,7 @@ import {
     buildCategoryNameLookup,
     buildReportPagination,
     getCategoryDisplayName,
+    getMetricScore as getMetricScoreFromConfig,
     getTopCategoryZhLabel,
     parsePreviewImage,
 } from './components/reports/reportUtils';
@@ -111,35 +112,8 @@ const App = () => {
     }, [allCategories]);
 
     // 统一评分逻辑：根据 algoConfig 计算
-    const getMetricScore = (metricKey, value, secondaryValue = null) => {
-        if (!algoConfig || !algoConfig[metricKey]) return 0;
-        const conf = algoConfig[metricKey];
-        const ranges = conf.ranges;
-        const scores = conf.scores;
-
-        if (metricKey === 'days_per_review') {
-            if (secondaryValue === 0 || secondaryValue === '--') return 0;
-            const ratio = value / secondaryValue;
-            for (let i = 0; i < ranges.length; i++) {
-                if (ratio <= ranges[i]) return scores[i];
-            }
-            return scores[scores.length - 1];
-        }
-
-        if (metricKey === 'price') {
-            if (value > ranges[0]) return scores[0];
-            for (let i = 1; i < ranges.length; i++) {
-                if (value >= ranges[i]) return scores[i];
-            }
-            return scores[scores.length - 1];
-        }
-
-        // 默认逻辑：阈值从高到低比较
-        for (let i = 0; i < ranges.length; i++) {
-            if (value >= ranges[i]) return scores[i];
-        }
-        return scores[scores.length - 1];
-    };
+    const getMetricScore = (metricKey, value, secondaryValue = null) =>
+        getMetricScoreFromConfig(metricKey, value, secondaryValue, algoConfig);
 
     const [expandedNodes, setExpandedNodes] = useState(new Set());
 
