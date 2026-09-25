@@ -218,6 +218,44 @@ def _task_matches_top_category(task, top_category):
 RUNNING_TASK_STATUSES = {"pending", "scraping", "crawling", "reporting", "processing", "retrying"}
 
 
+def _norm_category_code_for_dedup(v: str) -> str:
+    s = str(v or "").strip().lstrip("0")
+    return s if s else "0"
+
+
+def _category_code_lookup_variants(category_id) -> list:
+    raw = str(category_id or "").strip()
+    if not raw:
+        return []
+    variants = []
+    for candidate in (raw, raw.zfill(5) if raw.isdigit() else raw, _norm_category_code_for_dedup(raw)):
+        candidate = str(candidate).strip()
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+    return variants
+
+
+def _get_in_flight_task_for_category(sb, category_id, exclude_task_id=None):
+    lookup_codes = _category_code_lookup_variants(category_id)
+    if not lookup_codes:
+        return None
+
+    target_norm = _norm_category_code_for_dedup(category_id)
+    res = (
+        sb.table("analysis_tasks")
+        .select("id,category_id,category,status,progress")
+        .in_("category_id", lookup_codes)
+        .in_("status", list(RUNNING_TASK_STATUSES))
+        .execute()
+    )
+    for task in res.data or []:
+        if exclude_task_id and str(task.get("id")) == str(exclude_task_id):
+            continue
+        if _norm_category_code_for_dedup(task.get("category_id")) == target_norm:
+            return task
+    return None
+
+
 def _expand_status_filters(status_filters):
     if not status_filters:
         return []
@@ -1013,9 +1051,15 @@ def retry_task(task_id: str, background_tasks: BackgroundTasks):
     if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
         return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
 
-    # 哥，针对防重试连点（幂等性）的增强：如果已经在队列或执行中，直接拦截
-    if t.get("status") in ["pending", "scraping", "crawling", "reporting", "processing"]:
-        return TaskStatus(task_id=task_id, category=t['category'], status=t['status'], progress=t['progress'] or 0)
+    cat_id = t.get("category_id") or t.get("category")
+    in_flight = _get_in_flight_task_for_category(sb, cat_id, exclude_task_id=task_id)
+    if in_flight:
+        return TaskStatus(
+            task_id=in_flight["id"],
+            category=in_flight.get("category") or t["category"],
+            status=in_flight.get("status") or "pending",
+            progress=in_flight.get("progress") or 0,
+        )
 
     # 强制重置状态和进度
     payload = {
@@ -1027,10 +1071,7 @@ def retry_task(task_id: str, background_tasks: BackgroundTasks):
     if _analysis_tasks_has_updated_at():
         payload["updated_at"] = datetime.now().isoformat()
     sb.table("analysis_tasks").update(payload).eq("id", task_id).execute()
-    
-    # 获取原始类别ID，如果是空则用名称兜底
-    cat_id = t.get("category_id") or t.get("category")
-    
+
     background_tasks.add_task(execute_rpa_pipeline, task_id, cat_id, t.get("category"))
     return TaskStatus(task_id=task_id, category=t['category'], status="pending", progress=0)
 
@@ -1136,19 +1177,21 @@ def create_category_task(req: TaskRequest, background_tasks: BackgroundTasks):
     
     # 哥，针对防重复抓取的检测：15天同类目拦截
     recent_limit = (datetime.now() - timedelta(days=15)).isoformat()
-    recent = sb.table("analysis_tasks").select("id").eq("category_id", str(category_id)).eq("status", "completed").gte("created_at", recent_limit).limit(1).execute()
+    recent = sb.table("analysis_tasks").select("id,category_stats,excel_path").eq("category_id", str(category_id)).eq("status", "completed").gte("created_at", recent_limit).order("created_at", desc=True).limit(1).execute()
     if recent.data:
-        # 如果已经有了，不创建任务，直接返回一个已完成的 Task 占位
-        if str(category_id).isdigit():
-            res_master = sb.table("algatop_categories_master").select("name_cn").eq("algatop_id", str(category_id)).limit(1).execute()
-            if res_master.data and res_master.data[0]['name_cn']:
-                display_title = res_master.data[0]['name_cn']
-        return TaskStatus(
-            task_id=recent.data[0]['id'],
-            category=display_title,
-            status="completed",
-            progress=100
-        )
+        recent_task = recent.data[0]
+        if _get_task_valid_product_count(recent_task) > 0 or recent_task.get("excel_path"):
+            # 如果已经有了，不创建任务，直接返回一个已完成的 Task 占位
+            if str(category_id).isdigit():
+                res_master = sb.table("algatop_categories_master").select("name_cn").eq("algatop_id", str(category_id)).limit(1).execute()
+                if res_master.data and res_master.data[0]['name_cn']:
+                    display_title = res_master.data[0]['name_cn']
+            return TaskStatus(
+                task_id=recent_task['id'],
+                category=display_title,
+                status="completed",
+                progress=100
+            )
     
     # 如果是数字 ID，直接去主表查中文名存库
     if str(category_id).isdigit():
