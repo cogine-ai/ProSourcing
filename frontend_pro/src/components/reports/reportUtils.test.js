@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+    buildCategoryNameLookup,
     buildReportPagination,
+    getCategoryDisplayName,
     getListedDays,
     getMetricScore,
     getTaskProductScore,
+    getTopCategoryZhLabel,
     isHighQualityProduct,
+    parsePreviewImage,
     sortTaskProducts,
 } from './reportUtils.js';
 
@@ -143,5 +147,59 @@ describe('getTaskProductScore', () => {
             task,
         );
         assert.ok(score > 0);
+    });
+});
+
+describe('category display helpers', () => {
+    const tree = [
+        {
+            name_ru: 'Одежда',
+            name_cn: '服装',
+            children: [
+                { name_ru: 'Платья', name_cn: '连衣裙', category_id: '00123' },
+            ],
+        },
+    ];
+
+    it('buildCategoryNameLookup indexes ru names to zh labels', () => {
+        const lookup = buildCategoryNameLookup(tree);
+        assert.equal(lookup.get('платья'), '连衣裙');
+        assert.equal(lookup.get('одежда'), '服装');
+    });
+
+    it('getCategoryDisplayName prefers explicit chinese names', () => {
+        assert.equal(getCategoryDisplayName({ name_cn: '手机配件' }), '手机配件');
+        assert.equal(getCategoryDisplayName({ category_name: 'Phones (手机)' }), '手机');
+        assert.equal(getCategoryDisplayName({ category_name: 'RPA采集_Кухня(厨房)' }), '厨房');
+    });
+
+    it('getCategoryDisplayName falls back to tree lookup', () => {
+        const lookup = buildCategoryNameLookup(tree);
+        assert.equal(getCategoryDisplayName({ name_ru: 'Платья' }, lookup), '连衣裙');
+    });
+
+    it('getTopCategoryZhLabel resolves json string up_categories', () => {
+        const task = {
+            up_categories: JSON.stringify([{ name_ru: 'Платья' }]),
+        };
+        const lookup = buildCategoryNameLookup(tree);
+        assert.equal(getTopCategoryZhLabel(task, [], lookup), '连衣裙');
+    });
+
+    it('getTopCategoryZhLabel prefers task-level overrides', () => {
+        const task = { top_category_name_cn: '自定义分类', up_categories: [] };
+        assert.equal(getTopCategoryZhLabel(task), '自定义分类');
+    });
+});
+
+describe('parsePreviewImage', () => {
+    it('returns empty string for missing input', () => {
+        assert.equal(parsePreviewImage(null), '');
+        assert.equal(parsePreviewImage(''), '');
+    });
+
+    it('parses json string preview lists', () => {
+        const payload = JSON.stringify([{ medium: 'https://img.example/m.jpg', large: 'https://img.example/l.jpg' }]);
+        assert.equal(parsePreviewImage(payload, 'large'), 'https://img.example/l.jpg');
     });
 });
