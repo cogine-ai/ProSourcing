@@ -26,6 +26,7 @@ is_docker = (
 
 from core.final_pipeline import run_scoring_and_export
 from core.scoring import ScoringEngine, DEFAULT_CONFIG
+from core.task_recovery import select_tasks_for_recovery_requeue
 # from deep_translator import GoogleTranslator
 
 app = FastAPI(title="ProSourcing API")
@@ -1076,6 +1077,8 @@ def recover_interrupted_tasks(req: RecoverInterruptedTasksRequest, background_ta
     if req.limit and req.limit > 0:
         matched = matched[: req.limit]
 
+    requeue_tasks = select_tasks_for_recovery_requeue(matched, stale_before, res.data)
+
     preview = [
         {
             "id": task.get("id"),
@@ -1085,7 +1088,7 @@ def recover_interrupted_tasks(req: RecoverInterruptedTasksRequest, background_ta
             "updated_at": task.get("updated_at"),
             "created_at": task.get("created_at"),
         }
-        for task in matched
+        for task in requeue_tasks
     ]
 
     if req.dry_run:
@@ -1098,7 +1101,7 @@ def recover_interrupted_tasks(req: RecoverInterruptedTasksRequest, background_ta
         }
 
     requeued = []
-    for task in matched:
+    for task in requeue_tasks:
         payload = {
             "status": "pending",
             "progress": 0,

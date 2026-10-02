@@ -60,7 +60,12 @@ async def main():
         await pw.stop()
         return
 
-    context = browser.contexts[0]
+    contexts = browser.contexts
+    if contexts:
+        context = contexts[0]
+    else:
+        print("Chrome 未暴露任何 context，正在创建新 context...")
+        context = await browser.new_context()
 
     # ── 3. 找到已打开的 algatop 页面（和 RPA 一样复用已有 tab） ──
     page = None
